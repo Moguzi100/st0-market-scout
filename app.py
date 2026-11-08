@@ -10,7 +10,7 @@ import pytz
 # SIVUN ASETUKSET
 # ==========================================
 st.set_page_config(
-    page_title="ST0 Market Scout v2.6",
+    page_title="ST0 Market Scout v2.61",
     page_icon="📡",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -328,8 +328,8 @@ def fetch_all_market_data():
             elif rs_1d >= 3.0 and chg_1d > 0:
                 status_flag = f"💪 RS-JOHTAJA (1d: +{round(rs_1d,1)}% / 20d: {rs_20d}%)"
 
-            if earnings_soon and status_flag != "OK":
-                status_flag += " ⚠️EARNINGS!"
+            if earnings_soon:
+                status_flag = f"⚠️ TULOS LÄHELLÄ ({next_q_str})" if status_flag == "OK" else f"{status_flag} ⚠️EARNINGS!"
 
             day_range_str = f"{round(day_low, 2)}–{round(day_high, 2)}"
 
@@ -387,7 +387,7 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
     spy = macro_info.get("SPY", {})
     fx = macro_info.get("EURUSD", {})
 
-    md = f"# 📡 ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (COMPLETE ALPHA v2.6)\n"
+    md = f"# 📡 ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (COMPLETE ALPHA v2.61)\n"
     md += f"**AIKALEIMA:** `{now_str}` `[LIVE_USER_FEED: 0-3min]`\n"
     md += (
         f"**MAKRO & SEKTORIT:** `VIX: {vix.get('price')} ({vix.get('chg_pct')}%)` | "
@@ -427,7 +427,7 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
 
     if company_news:
         md += "\n## 📰 TUOREIMMAT YHTIÖKOHTAISET UUTISET (100% KOHDENNETTU, 24H)\n"
-        md += "\n".join(company_news[:18]) + "\n"
+        md += "\n".join(company_news[:21]) + "\n"
 
     return md
 
@@ -451,7 +451,7 @@ def push_to_google_drive_webhook(markdown_text, webhook_url):
 # ==========================================
 # KÄYTTÖLIITTYMÄ (UI)
 # ==========================================
-st.title("📡 ST0 Market Scout v2.6 (Complete Alpha PWA)")
+st.title("📡 ST0 Market Scout v2.61 (Complete Alpha PWA)")
 
 if st.button("🔄 Päivitä Live-Kurssit & Lähetä Driveen", type="primary", use_container_width=True):
     st.cache_data.clear()
@@ -473,5 +473,5 @@ with st.expander("📋 VARAVAIHTOEHTO: Kopioi raportti leikepöydälle (1 klikka
 st.subheader("🚨 Aktiiviset Signaalit")
 st.dataframe(df[df["Signaali"] != "OK"], use_container_width=True, hide_index=True)
 
-st.subheader("📊 Koko Salkku & Seurantalista (v2.6 Complete Alpha Engine)")
+st.subheader("📊 Koko Salkku & Seurantalista (v2.61 Complete Alpha Engine)")
 st.dataframe(df, use_container_width=True, hide_index=True)
