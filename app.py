@@ -10,42 +10,42 @@ import pytz
 # SIVUN ASETUKSET
 # ==========================================
 st.set_page_config(
-    page_title="ST0 Market Scout v3.0",
+    page_title="ST0 Market Scout v3.1",
     page_icon="📡",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
 # ==========================================
-# TARKAT YHTIÖKOHTAISET UUTISANKKURIT (04_TICKER_DNA)
+# TARKAT YHTIÖKOHTAISET UUTISANKKURIT (21 KOHDETTA — ANET & KLAC MUKANA)
 # ==========================================
 TICKERS = {
-    # KORI 1: Core Compounders
+    # KORI 1: Core Compounders (Nykyiset omistukset)
     "GOOG":    {"yf": ["GOOG"],          "bucket": "K1:Core",  "dna_ma": 200, "kw": ["alphabet", "google", "waymo", "gemini", "tpu", "youtube", "sundar", "doj"]},
+    "AMZN":    {"yf": ["AMZN"],          "bucket": "K1:Core",  "dna_ma": 100, "kw": ["amazon", "aws", "amzn", "jassy", "prime", "trainium"]},
     "TTWO":    {"yf": ["TTWO"],          "bucket": "K1:Core",  "dna_ma": 200, "kw": ["take-two", "gta", "rockstar", "ttwo", "zynga", "2k"]},
     "AAPL":    {"yf": ["AAPL"],          "bucket": "K1:Core",  "dna_ma": 200, "kw": ["apple", "iphone", "ipad", "mac", "tim cook", "aapl", "foxconn"]},
     "META":    {"yf": ["META"],          "bucket": "K1:Core",  "dna_ma": 100, "kw": ["meta", "zuckerberg", "instagram", "whatsapp", "llama", "threads"]},
-    # KORI 2: AI & Semi Stack
+    # KORI 2: AI & Semi Stack (Nykyiset omistukset)
     "AVGO":    {"yf": ["AVGO"],          "bucket": "K2:Semi",  "dna_ma": 50,  "kw": ["broadcom", "avgo", "vmware", "hock tan", "custom chip", "xpu"]},
     "NVDA":    {"yf": ["NVDA"],          "bucket": "K2:Semi",  "dna_ma": 50,  "kw": ["nvidia", "nvda", "blackwell", "rubin", "jensen", "geforce", "cuda"]},
-    "NBIS":    {"yf": ["NBIS"],          "bucket": "K2:Semi",  "dna_ma": 50,  "kw": ["nebius", "nbis", "arkady", "toloka", "avride"]},
+    "AMD":     {"yf": ["AMD"],           "bucket": "K2:Semi",  "dna_ma": 200, "kw": ["amd", "advanced micro", "lisa su", "instinct", "epyc", "ryzen"]},
     "MU":      {"yf": ["MU"],            "bucket": "K2:Semi",  "dna_ma": 100, "kw": ["micron", "hbm", "dram", "nand", "sanjay", "memory"]},
     "TSM":     {"yf": ["TSM"],           "bucket": "K2:Semi",  "dna_ma": 50,  "kw": ["tsmc", "taiwan semi", "cowos", "foundry", "wafer"]},
     "ASML":    {"yf": ["ASML"],          "bucket": "K2:Semi",  "dna_ma": 200, "kw": ["asml", "euv", "lithography", "fouquet", "bookings"]},
-    # KORI 3: High-Beta & Frontier
+    # KORI 3: High-Beta & Frontier (Nykyiset omistukset)
     "SPCX":    {"yf": ["SPCX", "DXYZ"],  "bucket": "K3:Beta",  "dna_ma": 50,  "kw": ["spacex", "starlink", "starship", "falcon", "spcx", "dxyz"]},
     "MSTR":    {"yf": ["MSTR"],          "bucket": "K3:Beta",  "dna_ma": 50,  "kw": ["microstrategy", "strategy", "saylor", "mstr"]},
-    # KORI 4: Suomi / EUR
-    "NOKIA":   {"yf": ["NOKIA.HE"],      "bucket": "K4:Suomi", "dna_ma": 200, "kw": ["nokia", "lundmark", "hotard", "infinera", "5g", "telecom"]},
+    # KORI 4: Suomi / EUR (Nykyiset omistukset)
     "WRT1V":   {"yf": ["WRT1V.HE"],      "bucket": "K4:Suomi", "dna_ma": 100, "kw": ["wärtsilä", "wartsila", "agnevall", "marine", "energy storage"]},
     "FRAMERY": {"yf": ["FRAMERY.HE"],    "bucket": "K4:Suomi", "dna_ma": 50,  "kw": ["framery", "hlt", "office pod"]},
-    # SEURANTALISTA (Watchlist)
+    # SEURANTALISTA (Watchlist: ANET, KLAC, NBIS, NOKIA, BTC-USD, TSLA)
+    "ANET":    {"yf": ["ANET"],          "bucket": "WATCH",    "dna_ma": 50,  "kw": ["arista", "anet", "ethernet", "switch", "ullal", "networking"]},
+    "KLAC":    {"yf": ["KLAC"],          "bucket": "WATCH",    "dna_ma": 100, "kw": ["kla", "klac", "metrology", "inspection", "wafer", "wallace"]},
+    "NBIS":    {"yf": ["NBIS"],          "bucket": "WATCH",    "dna_ma": 50,  "kw": ["nebius", "nbis", "arkady", "toloka", "avride"]},
+    "NOKIA":   {"yf": ["NOKIA.HE"],      "bucket": "WATCH",    "dna_ma": 200, "kw": ["nokia", "lundmark", "hotard", "infinera", "5g", "telecom"]},
     "BTC-USD": {"yf": ["BTC-USD"],       "bucket": "WATCH",    "dna_ma": 50,  "kw": ["bitcoin", "btc", "crypto", "ibit", "etf"]},
-    "AMZN":    {"yf": ["AMZN"],          "bucket": "WATCH",    "dna_ma": 100, "kw": ["amazon", "aws", "amzn", "jassy", "prime"]},
-    "AMD":     {"yf": ["AMD"],           "bucket": "WATCH",    "dna_ma": 200, "kw": ["amd", "advanced micro", "lisa su", "instinct", "epyc", "ryzen"]},
-    "ORCL":    {"yf": ["ORCL"],          "bucket": "WATCH",    "dna_ma": 100, "kw": ["oracle", "orcl", "ellison", "oci", "cerner"]},
     "TSLA":    {"yf": ["TSLA"],          "bucket": "WATCH",    "dna_ma": 200, "kw": ["tesla", "tsla", "musk", "cybercab", "robotaxi", "megapack", "fsd"]},
-    "NESTE":   {"yf": ["NESTE.HE"],      "bucket": "WATCH",    "dna_ma": 200, "kw": ["neste", "malinen", "saf", "renewable diesel", "porvoo", "rotterdam"]},
 }
 
 MACRO_TICKERS = {
@@ -193,7 +193,7 @@ def fetch_all_market_data():
                 day_low = min(day_low, live_price)
                 day_high = max(day_high, live_price)
 
-                # 1. ZERO-ILLUSION ARVOSTUSSUODATIN (v3.0 First Principles Guard)
+                # 1. ZERO-ILLUSION ARVOSTUSSUODATIN (v3.1 First Principles Guard)
                 t_pe = fast.get("trailingPE")
                 f_pe = fast.get("forwardPE")
                 ev_ebitda = fast.get("enterpriseToEbitda")
@@ -212,9 +212,9 @@ def fetch_all_market_data():
                 if f_pe and 4.5 < float(f_pe) < 200.0 and positive_opm:
                     f_val = float(f_pe)
                     if t_pe and float(t_pe) > 0 and f_val < float(t_pe) * 0.50 and f_val < 18.0:
-                        f_pe_valid = False  # Yahoo jakajavirhe
+                        f_pe_valid = False
                     elif valid_ev and f_val < float(ev_ebitda) * 0.85 and f_val < 18.0:
-                        f_pe_valid = False  # Yahoo jakajavirhe (esim. ORCL 10.5x vs EV 14.2x tai NVDA 11.7x vs EV 22.2x)
+                        f_pe_valid = False
                     else:
                         f_pe_valid = True
 
@@ -246,7 +246,7 @@ def fetch_all_market_data():
 
                 quality_str = f"{rev_s}/{opm_s}/{fcf_s}"
 
-                # 3. TULOSKALENTERI (Ilman 4-tavuisia Mojibake-emojeja!)
+                # 3. TULOSKALENTERI
                 e_ts = fast.get("earningsTimestamp") or fast.get("earningsTimestampStart")
                 if e_ts:
                     e_dt = datetime.fromtimestamp(int(e_ts), tz=tz_fi)
@@ -308,7 +308,6 @@ def fetch_all_market_data():
             dist_to_support_pct = ((live_price / dyn_support) - 1) * 100
             status_flag = "OK"
 
-            # Puhtaat UTF-8/ASCII-signaalit (ei Mojibake-ongelmaa Google Docsissa!)
             if rsi_val <= 34.0:
                 status_flag = f"BUY: YLIMYYTY (RSI {round(rsi_val,1)})"
             elif 0.0 <= dist_to_support_pct <= 2.8 and rsi_val <= 46.0:
@@ -397,7 +396,7 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
     active_df = df[df["Signaali"] != "OK"]
     inactive_df = df[df["Signaali"] == "OK"]
 
-    md = f"# ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (v3.0 GOLD MASTER)\n"
+    md = f"# ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (v3.1 GOLD MASTER)\n"
     md += f"AIKALEIMA: {now_str} (LIVE_USER_FEED: 0-3min)\n"
     md += (
         f"MAKRO & SEKTORIT: VIX: {vix.get('price')} ({vix.get('chg_pct')}%) | "
@@ -448,7 +447,7 @@ def push_to_google_drive_webhook(markdown_text, webhook_url):
 # ==========================================
 # KÄYTTÖLIITTYMÄ (UI)
 # ==========================================
-st.title("📡 ST0 Market Scout v3.0 (Gold Master PWA)")
+st.title("📡 ST0 Market Scout v3.1 (Gold Master PWA)")
 
 if st.button("🔄 Päivitä Live-Kurssit & Lähetä Driveen", type="primary", use_container_width=True):
     st.cache_data.clear()
