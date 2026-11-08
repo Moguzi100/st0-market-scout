@@ -10,7 +10,7 @@ import pytz
 # SIVUN ASETUKSET
 # ==========================================
 st.set_page_config(
-    page_title="ST0 Market Scout v2.3",
+    page_title="ST0 Market Scout v2.4",
     page_icon="📡",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -57,7 +57,6 @@ MACRO_TICKERS = {
     "EURUSD": "EURUSD=X"
 }
 
-# Klikkiotsikoiden suodatuslista (estää kohinan makro- ja sektoriuutisissa)
 NOISE_PHRASES = [
     "stocks to buy", "stock to buy", "if you invested", "motley fool",
     "why this stock", "millionaire-maker", "retirees", "dividend stocks"
@@ -84,7 +83,8 @@ def is_clean_headline(title):
 @st.cache_data(ttl=120)
 def fetch_all_market_data():
     tz_fi = pytz.timezone("Europe/Helsinki")
-    now_str = datetime.now(tz_fi).strftime("%d.%m.%Y klo %H:%M:%S EET")
+    now_dt = datetime.now(tz_fi)
+    now_str = now_dt.strftime("%d.%m.%Y klo %H:%M:%S EET")
 
     macro_info = {}
     qqq_chg_1d, qqq_chg_20d = 0.0, 0.0
@@ -109,7 +109,6 @@ def fetch_all_market_data():
                 elif name == "SPY":
                     spy_chg_1d, spy_chg_20d = chg_1d, chg_20d
 
-            # Poimitaan Makrouutiset (SPY / US10Y) ja Sektoriuutiset (SMH / QQQ)
             raw_m_news = t.news
             if raw_m_news:
                 for item in raw_m_news[:5]:
@@ -160,6 +159,9 @@ def fetch_all_market_data():
             market_session = "REG/CLOSE"
             val_str = "N/A"
             rev_gr_str = "N/A"
+            next_q_str = "-"
+            earnings_soon = False
+
             try:
                 fast = t.info
                 pre_p = fast.get("preMarketPrice")
@@ -179,32 +181,58 @@ def fetch_all_market_data():
                     live_price = float(curr_p)
                     prev_close = float(reg_prev)
 
-                # ARVOSTUSKERTOIMIEN SANITY CHECK (Estää rikkinäisen Fwd P/E -ansan)
+                # ==========================================
+                # VALUUTTA- & API-PUHDISTETTU ARVOSTUS (Ei '|' merkkiä solun sisään!)
+                # ==========================================
                 t_pe = fast.get("trailingPE")
                 f_pe = fast.get("forwardPE")
                 ev_ebitda = fast.get("enterpriseToEbitda")
                 pb = fast.get("priceToBook")
+                curr_code = fast.get("currency", "USD")
+                fin_curr = fast.get("financialCurrency", curr_code)
+
+                # Jos tuloslaskelman valuutta != pörssivaluutta (esim. TSM: USD vs TWD), EV/EBITDA on vääristynyt
+                same_currency = (curr_code == fin_curr)
+                valid_ev = (ev_ebitda is not None and 2.0 < float(ev_ebitda) < 150.0 and same_currency)
 
                 parts = []
-                if f_pe and f_pe > 0:
-                    if t_pe and t_pe > 0 and (f_pe < t_pe * 0.35 and f_pe < 15.0):
-                        parts.append(f"PE:{round(float(t_pe),1)}x(T)")
+                # Tarkistetaan Fwd P/E:n järkevyys suhteessa Trailing P/E:hen ja EV/EBITDA:an
+                f_pe_valid = False
+                if f_pe and 4.0 < float(f_pe) < 200.0:
+                    f_val = float(f_pe)
+                    if t_pe and float(t_pe) > 0 and f_val < float(t_pe) * 0.45 and f_val < 16.0:
+                        f_pe_valid = False  # Yahoo jakajavirhe
+                    elif valid_ev and f_val < float(ev_ebitda) * 0.60 and f_val < 16.0:
+                        f_pe_valid = False  # Yahoo jakajavirhe (esim. NVDA Fwd 11.7x vs EV/EB 22.2x)
                     else:
-                        parts.append(f"Fwd:{round(float(f_pe),1)}x")
-                elif t_pe and t_pe > 0:
+                        f_pe_valid = True
+
+                if f_pe_valid:
+                    parts.append(f"Fwd:{round(float(f_pe),1)}x")
+                elif t_pe and 2.0 < float(t_pe) < 250.0:
                     parts.append(f"PE:{round(float(t_pe),1)}x(T)")
 
-                if ev_ebitda and 0 < ev_ebitda < 150:
+                if valid_ev:
                     parts.append(f"EV/EB:{round(float(ev_ebitda),1)}x")
-                elif pb and pb > 0 and not parts:
+                elif pb and float(pb) > 0:
                     parts.append(f"PB:{round(float(pb),1)}x")
 
                 if parts:
-                    val_str = " | ".join(parts)
+                    val_str = " / ".join(parts)  # Käytetään '/' eikä '|' jotta Markdown-taulukko pysyy 100% ehjänä!
 
                 rev_g = fast.get("revenueGrowth")
                 if rev_g is not None:
                     rev_gr_str = f"{round(float(rev_g) * 100, 1)}%"
+
+                # Seuraava tulosjulkistuspäivä (P.10 Earnings Freeze)
+                e_ts = fast.get("earningsTimestamp") or fast.get("earningsTimestampStart")
+                if e_ts:
+                    e_dt = datetime.fromtimestamp(int(e_ts), tz=tz_fi)
+                    days_diff = (e_dt.date() - now_dt.date()).days
+                    next_q_str = e_dt.strftime("%d.%m.")
+                    if 0 <= days_diff <= 7:
+                        next_q_str = f"⚠️{next_q_str}({days_diff}pv!)"
+                        earnings_soon = True
             except Exception:
                 pass
 
@@ -249,20 +277,26 @@ def fetch_all_market_data():
             above_resistances = [val for _, val in [("SMA50", sma50), ("SMA200", sma200), ("BB-High", upper_bb), ("52w-High", high_52w)] if val >= live_price * 1.03]
             dyn_trim = round(min(above_resistances) if above_resistances else upper_bb, 2)
 
+            # ==========================================
+            # TARKKA SIGNAALILOGIIKKA (Ei '|' merkkiä solun sisään!)
+            # ==========================================
             dist_to_support_pct = ((live_price / dyn_support) - 1) * 100
             status_flag = "OK"
 
             if rsi_val <= 33.0:
-                status_flag = f"🟢 RSI YLIMYYTY ({round(rsi_val,1)}) | Tuki: {dyn_support}"
+                status_flag = f"🟢 RSI YLIMYYTY ({round(rsi_val,1)}) -> Tuki: {dyn_support}"
             elif -1.5 <= dist_to_support_pct <= 2.5 and rsi_val <= 46.0:
                 status_flag = f"🟢 TESTAA {support_type}-TUKEA ({dyn_support})"
             elif rsi_val >= 72.0:
-                status_flag = f"🟠 RSI YLIOSTETTU ({round(rsi_val,1)}) | Trim: {dyn_trim}"
+                status_flag = f"🟠 RSI YLIOSTETTU ({round(rsi_val,1)}) -> Trim: {dyn_trim}"
             elif abs(chg_1d) >= 5.0:
                 vol_tag = f" [RVOL {rvol}x!]" if rvol >= 1.3 else ""
                 status_flag = f"⚡ >5% LIIKE ({round(chg_1d,1)}%){vol_tag}"
             elif rs_1d >= 3.0 and chg_1d > 0:
-                status_flag = f"💪 RS-JOHTAJA (1d: +{round(rs_1d,1)}% | 20d: {rs_20d}%)"
+                status_flag = f"💪 RS-JOHTAJA (1d: +{round(rs_1d,1)}% / 20d: {rs_20d}%)"
+
+            if earnings_soon and status_flag != "OK":
+                status_flag += " ⚠️EARNINGS!"
 
             rows.append({
                 "Ticker": sym if used_yf == sym or ".HE" in used_yf else f"{sym} ({used_yf})",
@@ -281,10 +315,10 @@ def fetch_all_market_data():
                 "RS (1d / 20d)": f"{rs_1d}% / {rs_20d}%",
                 "Dyn Tuki": f"{dyn_support} ({support_type})",
                 "Dyn Trim": dyn_trim,
+                "Next Q": next_q_str,
                 "Signaali": status_flag
             })
 
-            # RELEVANSSISUODATETTU YHTIÖUUTISHAKU
             try:
                 raw_news = t.news
                 if raw_news:
@@ -323,7 +357,7 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
     spy = macro_info.get("SPY", {})
     fx = macro_info.get("EURUSD", {})
 
-    md = f"# 📡 ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (MACRO & ALPHA v2.3)\n"
+    md = f"# 📡 ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (FINAL MASTER v2.4)\n"
     md += f"**AIKALEIMA:** `{now_str}` `[LIVE_USER_FEED: 0-3min]`\n"
     md += (
         f"**MAKRO & SEKTORIT:** `VIX: {vix.get('price')} ({vix.get('chg_pct')}%)` | "
@@ -346,19 +380,19 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
         md += "## 🚨 AKTIIVISET SIGNAALIT & POIKKEAMAT\n"
         for _, r in alerts_df.iterrows():
             md += (
-                f"- **{r['Ticker']} ({r['Hinta']} | {r['Muutos %']}% | RVOL: {r['RVOL']} | 52w: {r['52w Huipusta %']}% | {r['Arvostus']} | RevGr: {r['RevGr %']}):** "
+                f"- **{r['Ticker']} ({r['Hinta']} | {r['Muutos %']}% | RVOL: {r['RVOL']} | 52w: {r['52w Huipusta %']}% | {r['Arvostus']} | RevGr: {r['RevGr %']} | Q: {r['Next Q']}):** "
                 f"{r['Signaali']} | Wilder RSI: {r['RSI(14)']} | RS(1d/20d): {r['RS (1d / 20d)']} | Dyn Tuki: {r['Dyn Tuki']} | Dyn Trim: {r['Dyn Trim']}\n"
             )
         md += "\n"
 
     md += "## 📊 21 KOHTEEN FUNDAMENTTI-, VOLYYMI-, TEKNINEN & SUHTEELLINEN MATRIISI\n"
-    md += "| Ticker | Kori | Hinta | Sessio | Muutos % | RVOL | 52w Huipusta | Arvostus | RevGr% | RSI(14) | vs SMA50% | vs SMA200% | ADR% | RS (1d / 20d) | Dyn Tuki | Dyn Trim | Signaali |\n"
-    md += "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+    md += "| Ticker | Kori | Hinta | Sessio | Muutos % | RVOL | 52w Huipusta | Arvostus | RevGr% | RSI(14) | vs SMA50% | vs SMA200% | ADR% | RS (1d / 20d) | Dyn Tuki | Dyn Trim | Next Q | Signaali |\n"
+    md += "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
     for _, r in df.iterrows():
         md += (
             f"| **{r['Ticker']}** | {r['Kori']} | {r['Hinta']} | {r['Sessio']} | {r['Muutos %']}% | {r['RVOL']} | "
             f"{r['52w Huipusta %']}% | {r['Arvostus']} | {r['RevGr %']} | {r['RSI(14)']} | {r['vs SMA50 %']}% | "
-            f"{r['vs SMA200 %']}% | {r['ADR %']}% | {r['RS (1d / 20d)']} | {r['Dyn Tuki']} | {r['Dyn Trim']} | {r['Signaali']} |\n"
+            f"{r['vs SMA200 %']}% | {r['ADR %']}% | {r['RS (1d / 20d)']} | {r['Dyn Tuki']} | {r['Dyn Trim']} | {r['Next Q']} | {r['Signaali']} |\n"
         )
 
     if company_news:
@@ -387,7 +421,7 @@ def push_to_google_drive_webhook(markdown_text, webhook_url):
 # ==========================================
 # KÄYTTÖLIITTYMÄ (UI)
 # ==========================================
-st.title("📡 ST0 Market Scout v2.3 (Macro, Sector & Alpha PWA)")
+st.title("📡 ST0 Market Scout v2.4 (Final Master PWA)")
 
 if st.button("🔄 Päivitä Live-Kurssit & Lähetä Driveen", type="primary", use_container_width=True):
     st.cache_data.clear()
@@ -409,5 +443,5 @@ with st.expander("📋 VARAVAIHTOEHTO: Kopioi raportti leikepöydälle (1 klikka
 st.subheader("🚨 Aktiiviset Signaalit")
 st.dataframe(df[df["Signaali"] != "OK"], use_container_width=True, hide_index=True)
 
-st.subheader("📊 Koko Salkku & Seurantalista (v2.3 Institutional Alpha Engine)")
+st.subheader("📊 Koko Salkku & Seurantalista (v2.4 Final Master Engine)")
 st.dataframe(df, use_container_width=True, hide_index=True)
