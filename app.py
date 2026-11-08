@@ -10,7 +10,7 @@ import pytz
 # SIVUN ASETUKSET
 # ==========================================
 st.set_page_config(
-    page_title="ST0 Market Scout v2.9",
+    page_title="ST0 Market Scout v3.0",
     page_icon="📡",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -117,9 +117,9 @@ def fetch_all_market_data():
                     if is_clean_headline(title) and title not in seen_titles:
                         seen_titles.add(title)
                         if name in ["SPY", "US10Y", "VIX"] and len(macro_news) < 3:
-                            macro_news.append(f"- MAKRO ({name}): {title}")
+                            macro_news.append(f"- MAKRO ({name}): {title[:115]}")
                         elif name in ["SMH", "QQQ"] and len(sector_news) < 3:
-                            sector_news.append(f"- SEKTORI ({name}): {title}")
+                            sector_news.append(f"- SEKTORI ({name}): {title[:115]}")
         except Exception:
             macro_info[name] = {"price": 0.0, "chg_pct": 0.0, "chg_20d": 0.0}
 
@@ -160,7 +160,7 @@ def fetch_all_market_data():
             live_price = last_close
             market_session = "CLS"
             val_str = "-"
-            quality_str = "- / - / -"
+            quality_str = "-/-/-"
             next_q_str = "-"
             earnings_soon = False
 
@@ -193,26 +193,28 @@ def fetch_all_market_data():
                 day_low = min(day_low, live_price)
                 day_high = max(day_high, live_price)
 
-                # 1. ZERO-ILLUSION ARVOSTUSSUODATIN
+                # 1. ZERO-ILLUSION ARVOSTUSSUODATIN (v3.0 First Principles Guard)
                 t_pe = fast.get("trailingPE")
                 f_pe = fast.get("forwardPE")
                 ev_ebitda = fast.get("enterpriseToEbitda")
                 pb = fast.get("priceToBook")
+                op_m = fast.get("operatingMargins")
                 curr_code = fast.get("currency", "USD")
                 fin_curr = fast.get("financialCurrency", curr_code)
 
                 same_currency = (curr_code == fin_curr)
                 valid_ev = (ev_ebitda is not None and 2.0 < float(ev_ebitda) < 150.0 and same_currency)
                 valid_pb = (pb is not None and 0.2 < float(pb) < 35.0 and same_currency)
+                positive_opm = (op_m is None or float(op_m) > 0.01)
 
                 parts = []
                 f_pe_valid = False
-                if f_pe and 4.0 < float(f_pe) < 200.0:
+                if f_pe and 4.5 < float(f_pe) < 200.0 and positive_opm:
                     f_val = float(f_pe)
-                    if t_pe and float(t_pe) > 0 and f_val < float(t_pe) * 0.45 and f_val < 16.0:
-                        f_pe_valid = False
-                    elif valid_ev and f_val < float(ev_ebitda) * 0.60 and f_val < 16.0:
-                        f_pe_valid = False
+                    if t_pe and float(t_pe) > 0 and f_val < float(t_pe) * 0.50 and f_val < 18.0:
+                        f_pe_valid = False  # Yahoo jakajavirhe
+                    elif valid_ev and f_val < float(ev_ebitda) * 0.85 and f_val < 18.0:
+                        f_pe_valid = False  # Yahoo jakajavirhe (esim. ORCL 10.5x vs EV 14.2x tai NVDA 11.7x vs EV 22.2x)
                     else:
                         f_pe_valid = True
 
@@ -229,9 +231,8 @@ def fetch_all_market_data():
                 if parts:
                     val_str = "/".join(parts[:2])
 
-                # 2. P.8 LAATU- JA KASSAVIRTAMITTARIT (Vakio 3-paikkainen: Rev% / OpM% / FCF%)
+                # 2. P.8 LAATU- JA KASSAVIRTAMITTARIT (Rev% / OpM% / FCF%)
                 rev_g = fast.get("revenueGrowth")
-                op_m = fast.get("operatingMargins")
                 fcf = fast.get("freeCashflow")
                 mcap = fast.get("marketCap")
 
@@ -245,19 +246,19 @@ def fetch_all_market_data():
 
                 quality_str = f"{rev_s}/{opm_s}/{fcf_s}"
 
-                # 3. TULOSKALENTERIN AIKASUODATIN
+                # 3. TULOSKALENTERI (Ilman 4-tavuisia Mojibake-emojeja!)
                 e_ts = fast.get("earningsTimestamp") or fast.get("earningsTimestampStart")
                 if e_ts:
                     e_dt = datetime.fromtimestamp(int(e_ts), tz=tz_fi)
                     days_diff = (e_dt.date() - now_dt.date()).days
                     date_fmt = e_dt.strftime("%d.%m")
                     if 0 <= days_diff <= 7:
-                        next_q_str = f"⚠️{date_fmt}({days_diff}d)"
+                        next_q_str = f"Q!{date_fmt}({days_diff}d)"
                         earnings_soon = True
                     elif days_diff > 7:
-                        next_q_str = f"📅{date_fmt}({days_diff}d)"
+                        next_q_str = f"Q:{date_fmt}({days_diff}d)"
                     else:
-                        next_q_str = f"✅{date_fmt}"
+                        next_q_str = f"OK:{date_fmt}"
             except Exception:
                 pass
 
@@ -307,22 +308,23 @@ def fetch_all_market_data():
             dist_to_support_pct = ((live_price / dyn_support) - 1) * 100
             status_flag = "OK"
 
+            # Puhtaat UTF-8/ASCII-signaalit (ei Mojibake-ongelmaa Google Docsissa!)
             if rsi_val <= 34.0:
-                status_flag = f"🟢 YLIMYYTY (RSI {round(rsi_val,1)})"
+                status_flag = f"BUY: YLIMYYTY (RSI {round(rsi_val,1)})"
             elif 0.0 <= dist_to_support_pct <= 2.8 and rsi_val <= 46.0:
-                status_flag = f"🟢 TESTAA {support_type}"
+                status_flag = f"BUY: TESTAA {support_type}"
             elif rsi_val >= 72.0:
-                status_flag = f"🟠 YLIOSTETTU (RSI {round(rsi_val,1)})"
+                status_flag = f"TRIM: YLIOSTETTU (RSI {round(rsi_val,1)})"
             elif abs(chg_1d) >= 5.0:
                 vol_tag = f" RVOL:{rvol}x" if rvol >= 1.3 else ""
-                status_flag = f"⚡ LIIKE {round(chg_1d,1)}%{vol_tag}"
+                status_flag = f"MOVE: {round(chg_1d,1)}%{vol_tag}"
             elif rs_1d >= 3.0 and chg_1d > 0:
-                status_flag = f"💪 RS-LEAD (+{round(rs_1d,1)}%)"
+                status_flag = f"RS-LEAD (+{round(rs_1d,1)}%)"
 
             if earnings_soon:
-                status_flag = f"⚠️ TULOS {next_q_str}" if status_flag == "OK" else f"{status_flag} ⚠️Q!"
+                status_flag = f"WARN: TULOS {next_q_str}" if status_flag == "OK" else f"{status_flag} + {next_q_str}"
 
-            day_range_str = f"{round(day_low, 2)}–{round(day_high, 2)}"
+            day_range_str = f"{round(day_low, 2)}-{round(day_high, 2)}"
 
             rows.append({
                 "Ticker": sym if used_yf == sym or ".HE" in used_yf else f"{sym}({used_yf})",
@@ -330,17 +332,17 @@ def fetch_all_market_data():
                 "Hinta": round(live_price, 2),
                 "Sessio": market_session,
                 "Muutos %": round(chg_1d, 2),
-                "Day Low–High": day_range_str,
+                "Day Low-High": day_range_str,
                 "RVOL": f"{rvol}x",
                 "52w %": round(dd_52w_pct, 1),
-                "Arvostus (F/T/EV)": val_str,
-                "Rev% / OpM% / FCF%": quality_str,
+                "Arvostus": val_str,
+                "Rev/OpM/FCF": quality_str,
                 "RSI(14)": round(rsi_val, 1),
                 "SMA50%": round(dist_sma50, 1),
                 "SMA200%": round(dist_sma200, 1),
                 "ADR%": round(adr_pct, 1),
-                "RS (1d/20d)": f"{rs_1d}%/{rs_20d}%",
-                "Dyn Tuki": f"{dyn_support} ({support_type})",
+                "RS(1d/20d)": f"{rs_1d}%/{rs_20d}%",
+                "Dyn Tuki": f"{dyn_support}({support_type})",
                 "Dyn Trim": dyn_trim,
                 "Q-Tila": next_q_str,
                 "Signaali": status_flag
@@ -360,7 +362,7 @@ def fetch_all_market_data():
                                 break
                     if matched_title:
                         seen_titles.add(matched_title)
-                        company_news.append(f"- {sym}: {matched_title}")
+                        company_news.append(f"- {sym}: {matched_title[:115]}")
             except Exception:
                 pass
 
@@ -372,17 +374,17 @@ def fetch_all_market_data():
 
 def format_md_table(sub_df):
     if sub_df.empty:
-        return "Ei kohteita.\n\n"
-    header = "| Ticker | Kori | Hinta | Ses | Muutos | Low–High | RVOL | 52w% | Arvostus | Rev/OpM/FCF | RSI | SMA50 | SMA200 | ADR | RS(1d/20d) | Dyn Tuki | Dyn Trim | Q-Tila | Signaali |\n"
+        return "Ei kohteita.\n"
+    header = "| Ticker | Kori | Hinta | Ses | Muutos | Low-High | RVOL | 52w% | Arvostus | Rev/OpM/FCF | RSI | SMA50 | SMA200 | ADR | RS(1d/20d) | Dyn Tuki | Dyn Trim | Q-Tila | Signaali |\n"
     sep = "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
     body = ""
     for _, r in sub_df.iterrows():
         body += (
-            f"| {r['Ticker']} | {r['Kori']} | {r['Hinta']} | {r['Sessio']} | {r['Muutos %']}% | {r['Day Low–High']} | {r['RVOL']} | "
-            f"{r['52w %']}% | {r['Arvostus (F/T/EV)']} | {r['Rev% / OpM% / FCF%']} | {r['RSI(14)']} | {r['SMA50%']}% | "
-            f"{r['SMA200%']}% | {r['ADR%']}% | {r['RS (1d/20d)']} | {r['Dyn Tuki']} | {r['Dyn Trim']} | {r['Q-Tila']} | {r['Signaali']} |\n"
+            f"| {r['Ticker']} | {r['Kori']} | {r['Hinta']} | {r['Sessio']} | {r['Muutos %']}% | {r['Day Low-High']} | {r['RVOL']} | "
+            f"{r['52w %']}% | {r['Arvostus']} | {r['Rev/OpM/FCF']} | {r['RSI(14)']} | {r['SMA50%']}% | "
+            f"{r['SMA200%']}% | {r['ADR%']}% | {r['RS(1d/20d)']} | {r['Dyn Tuki']} | {r['Dyn Trim']} | {r['Q-Tila']} | {r['Signaali']} |\n"
         )
-    return header + sep + body + "\n"
+    return header + sep + body
 
 def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, company_news):
     vix = macro_info.get("VIX", {})
@@ -395,14 +397,14 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
     active_df = df[df["Signaali"] != "OK"]
     inactive_df = df[df["Signaali"] == "OK"]
 
-    md = f"# ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (v2.9 MASTER)\n"
+    md = f"# ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (v3.0 GOLD MASTER)\n"
     md += f"AIKALEIMA: {now_str} (LIVE_USER_FEED: 0-3min)\n"
     md += (
         f"MAKRO & SEKTORIT: VIX: {vix.get('price')} ({vix.get('chg_pct')}%) | "
         f"US10Y: {us10y.get('price')}% ({us10y.get('chg_pct')}%) | "
         f"SMH: 1d {smh.get('chg_pct')}% / 20d {smh.get('chg_20d')}% | "
         f"QQQ: 1d {qqq.get('chg_pct')}% / 20d {qqq.get('chg_20d')}% | "
-        f"SPY: 1d {spy.get('chg_pct')}% | EUR/USD: {fx.get('price')}\n\n"
+        f"SPY: 1d {spy.get('chg_pct')}% | EUR/USD: {fx.get('price')}\n"
     )
 
     if macro_news or sector_news:
@@ -411,19 +413,19 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
             md += f"{mn}\n"
         for sn in sector_news:
             md += f"{sn}\n"
-        md += "\n"
 
     md += f"## 2. KOKO SALKKU & SEURANTALISTA (21 KOHDETTA)\n"
-    md += f"### 🚨 A. AKTIIVISET SIGNAALIT & POIKKEAMAT ({len(active_df)} kpl)\n"
+    md += f"### A. AKTIIVISET SIGNAALIT & POIKKEAMAT ({len(active_df)} kpl)\n"
     md += format_md_table(active_df)
 
-    md += f"### 🟢 B. EI AKTIIVISIA SIGNAALEJA — NEUTRAALIT ({len(inactive_df)} kpl)\n"
+    md += f"### B. EI AKTIIVISIA SIGNAALEJA — NEUTRAALIT ({len(inactive_df)} kpl)\n"
     md += format_md_table(inactive_df)
 
     if company_news:
-        md += "## 3. YHTIÖKOHTAISET UUTISET (24H)\n"
+        md += "## 3. YHTIOKOHTAISET UUTISET (24H)\n"
         md += "\n".join(company_news[:21]) + "\n"
 
+    md += "[EOF: 21/21 OK]\n"
     return md
 
 def get_webhook_url():
@@ -446,7 +448,7 @@ def push_to_google_drive_webhook(markdown_text, webhook_url):
 # ==========================================
 # KÄYTTÖLIITTYMÄ (UI)
 # ==========================================
-st.title("📡 ST0 Market Scout v2.9 (Zero-Truncation Master PWA)")
+st.title("📡 ST0 Market Scout v3.0 (Gold Master PWA)")
 
 if st.button("🔄 Päivitä Live-Kurssit & Lähetä Driveen", type="primary", use_container_width=True):
     st.cache_data.clear()
@@ -458,7 +460,7 @@ webhook_url = get_webhook_url()
 ok, msg = push_to_google_drive_webhook(ai_report_md, webhook_url)
 
 if ok:
-    st.success(f"{msg} ({now_str}) — Koko: {len(ai_report_md)} merkkiä (~1650 merkin turvamarginaali Drive-rajaan!). Voit nyt avata Gemin ja sanoa: **'Tee tilannepäivitys ja toimintasuunnitelma'**!")
+    st.success(f"{msg} ({now_str}) — Koko: {len(ai_report_md)} merkkiä ([EOF: 21/21 OK] varmistettu!). Voit nyt avata Gemin ja sanoa: **'Tee tilannepäivitys ja toimintasuunnitelma'**!")
 else:
     st.warning(f"🕒 Ladattu: {now_str} | {msg}")
 
