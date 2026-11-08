@@ -10,14 +10,14 @@ import pytz
 # SIVUN ASETUKSET
 # ==========================================
 st.set_page_config(
-    page_title="ST0 Market Scout v2.5",
+    page_title="ST0 Market Scout v2.6",
     page_icon="📡",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
 # ==========================================
-# TARKAT YHTIÖKOHTAISET UUTISANKKURIT (Ei geneerisiä 'ai' tai 'stock' sanoja!)
+# TARKAT YHTIÖKOHTAISET UUTISANKKURIT (04_TICKER_DNA)
 # ==========================================
 TICKERS = {
     # KORI 1: Core Compounders
@@ -160,7 +160,7 @@ def fetch_all_market_data():
             live_price = last_close
             market_session = "REG/CLOSE"
             val_str = "N/A"
-            rev_gr_str = "N/A"
+            quality_str = "N/A"
             next_q_str = "-"
             earnings_soon = False
 
@@ -170,6 +170,14 @@ def fetch_all_market_data():
                 post_p = fast.get("postMarketPrice")
                 curr_p = fast.get("currentPrice") or fast.get("regularMarketPrice")
                 reg_prev = fast.get("regularMarketPreviousClose") or prev_close
+
+                # Päivän sisäinen kynttilähaarukka (jos live-markkina on päivittänyt High/Low-arvoja)
+                info_low = fast.get("dayLow") or fast.get("regularMarketDayLow")
+                info_high = fast.get("dayHigh") or fast.get("regularMarketDayHigh")
+                if info_low and float(info_low) > 0:
+                    day_low = float(info_low)
+                if info_high and float(info_high) > 0:
+                    day_high = float(info_high)
 
                 if pre_p and pre_p > 0:
                     live_price = float(pre_p)
@@ -184,7 +192,7 @@ def fetch_all_market_data():
                     prev_close = float(reg_prev)
 
                 # ==========================================
-                # ZERO-ILLUSION ARVOSTUSSUODATIN
+                # 1. ZERO-ILLUSION ARVOSTUSSUODATIN
                 # ==========================================
                 t_pe = fast.get("trailingPE")
                 f_pe = fast.get("forwardPE")
@@ -221,12 +229,29 @@ def fetch_all_market_data():
                 if parts:
                     val_str = " / ".join(parts[:2])
 
+                # ==========================================
+                # 2. P.8 LAATU- JA KASSAVIRTAMITTARIT (RevGr% / OpM% / FCF%)
+                # ==========================================
+                q_parts = []
                 rev_g = fast.get("revenueGrowth")
+                op_m = fast.get("operatingMargins")
+                fcf = fast.get("freeCashflow")
+                mcap = fast.get("marketCap")
+
                 if rev_g is not None:
-                    rev_gr_str = f"{round(float(rev_g) * 100, 1)}%"
+                    q_parts.append(f"Rev:{round(float(rev_g) * 100, 1)}%")
+                if op_m is not None and -2.0 < float(op_m) < 1.0:
+                    q_parts.append(f"OpM:{round(float(op_m) * 100, 1)}%")
+                if fcf is not None and mcap and float(mcap) > 0 and same_currency:
+                    fcf_yield = (float(fcf) / float(mcap)) * 100.0
+                    if -50.0 < fcf_yield < 50.0:
+                        q_parts.append(f"FCF:{round(fcf_yield, 1)}%")
+
+                if q_parts:
+                    quality_str = " / ".join(q_parts)
 
                 # ==========================================
-                # TULOSKALENTERIN AIKASUODATIN
+                # 3. TULOSKALENTERIN AIKASUODATIN
                 # ==========================================
                 e_ts = fast.get("earningsTimestamp") or fast.get("earningsTimestampStart")
                 if e_ts:
@@ -306,16 +331,19 @@ def fetch_all_market_data():
             if earnings_soon and status_flag != "OK":
                 status_flag += " ⚠️EARNINGS!"
 
+            day_range_str = f"{round(day_low, 2)}–{round(day_high, 2)}"
+
             rows.append({
                 "Ticker": sym if used_yf == sym or ".HE" in used_yf else f"{sym} ({used_yf})",
                 "Kori": cfg["bucket"],
                 "Hinta": round(live_price, 2),
                 "Sessio": market_session,
                 "Muutos %": round(chg_1d, 2),
+                "Day Low–High": day_range_str,
                 "RVOL": f"{rvol}x",
                 "52w Huipusta %": round(dd_52w_pct, 1),
                 "Arvostus": val_str,
-                "RevGr %": rev_gr_str,
+                "Kasvu / OpM / FCF": quality_str,
                 "RSI(14)": round(rsi_val, 1),
                 "vs SMA50 %": round(dist_sma50, 1),
                 "vs SMA200 %": round(dist_sma200, 1),
@@ -359,7 +387,7 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
     spy = macro_info.get("SPY", {})
     fx = macro_info.get("EURUSD", {})
 
-    md = f"# 📡 ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (ZERO-ILLUSION v2.5)\n"
+    md = f"# 📡 ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (COMPLETE ALPHA v2.6)\n"
     md += f"**AIKALEIMA:** `{now_str}` `[LIVE_USER_FEED: 0-3min]`\n"
     md += (
         f"**MAKRO & SEKTORIT:** `VIX: {vix.get('price')} ({vix.get('chg_pct')}%)` | "
@@ -382,18 +410,18 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
         md += "## 🚨 AKTIIVISET SIGNAALIT & POIKKEAMAT\n"
         for _, r in alerts_df.iterrows():
             md += (
-                f"- **{r['Ticker']} ({r['Hinta']} | {r['Muutos %']}% | RVOL: {r['RVOL']} | 52w: {r['52w Huipusta %']}% | {r['Arvostus']} | RevGr: {r['RevGr %']} | Q: {r['Q-Tila']}):** "
+                f"- **{r['Ticker']} ({r['Hinta']} | {r['Muutos %']}% | Range: {r['Day Low–High']} | RVOL: {r['RVOL']} | 52w: {r['52w Huipusta %']}% | {r['Arvostus']} | {r['Kasvu / OpM / FCF']} | Q: {r['Q-Tila']}):** "
                 f"{r['Signaali']} | Wilder RSI: {r['RSI(14)']} | RS(1d/20d): {r['RS (1d / 20d)']} | Dyn Tuki: {r['Dyn Tuki']} | Dyn Trim: {r['Dyn Trim']}\n"
             )
         md += "\n"
 
-    md += "## 📊 21 KOHTEEN FUNDAMENTTI-, VOLYYMI-, TEKNINEN & SUHTEELLINEN MATRIISI\n"
-    md += "| Ticker | Kori | Hinta | Sessio | Muutos % | RVOL | 52w Huipusta | Arvostus | RevGr% | RSI(14) | vs SMA50% | vs SMA200% | ADR% | RS (1d / 20d) | Dyn Tuki | Dyn Trim | Q-Tila | Signaali |\n"
-    md += "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+    md += "## 📊 21 KOHTEEN FUNDAMENTTI-, KASSAVIRTA-, VOLYYMI- & TEKNINEN MATRIISI\n"
+    md += "| Ticker | Kori | Hinta | Sessio | Muutos % | Day Low–High | RVOL | 52w Huipusta | Arvostus | Kasvu / OpM / FCF | RSI(14) | vs SMA50% | vs SMA200% | ADR% | RS (1d / 20d) | Dyn Tuki | Dyn Trim | Q-Tila | Signaali |\n"
+    md += "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
     for _, r in df.iterrows():
         md += (
-            f"| **{r['Ticker']}** | {r['Kori']} | {r['Hinta']} | {r['Sessio']} | {r['Muutos %']}% | {r['RVOL']} | "
-            f"{r['52w Huipusta %']}% | {r['Arvostus']} | {r['RevGr %']} | {r['RSI(14)']} | {r['vs SMA50 %']}% | "
+            f"| **{r['Ticker']}** | {r['Kori']} | {r['Hinta']} | {r['Sessio']} | {r['Muutos %']}% | {r['Day Low–High']} | {r['RVOL']} | "
+            f"{r['52w Huipusta %']}% | {r['Arvostus']} | {r['Kasvu / OpM / FCF']} | {r['RSI(14)']} | {r['vs SMA50 %']}% | "
             f"{r['vs SMA200 %']}% | {r['ADR %']}% | {r['RS (1d / 20d)']} | {r['Dyn Tuki']} | {r['Dyn Trim']} | {r['Q-Tila']} | {r['Signaali']} |\n"
         )
 
@@ -423,7 +451,7 @@ def push_to_google_drive_webhook(markdown_text, webhook_url):
 # ==========================================
 # KÄYTTÖLIITTYMÄ (UI)
 # ==========================================
-st.title("📡 ST0 Market Scout v2.5 (Zero-Illusion Master PWA)")
+st.title("📡 ST0 Market Scout v2.6 (Complete Alpha PWA)")
 
 if st.button("🔄 Päivitä Live-Kurssit & Lähetä Driveen", type="primary", use_container_width=True):
     st.cache_data.clear()
@@ -445,5 +473,5 @@ with st.expander("📋 VARAVAIHTOEHTO: Kopioi raportti leikepöydälle (1 klikka
 st.subheader("🚨 Aktiiviset Signaalit")
 st.dataframe(df[df["Signaali"] != "OK"], use_container_width=True, hide_index=True)
 
-st.subheader("📊 Koko Salkku & Seurantalista (v2.5 Zero-Illusion Engine)")
+st.subheader("📊 Koko Salkku & Seurantalista (v2.6 Complete Alpha Engine)")
 st.dataframe(df, use_container_width=True, hide_index=True)
