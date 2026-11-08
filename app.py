@@ -184,7 +184,7 @@ def fetch_all_market_data():
                     prev_close = float(reg_prev)
 
                 # ==========================================
-                # ZERO-ILLUSION ARVOSTUSSUODATIN (Estää Fwd P/E, EV/EB & PB valuuttavirheet!)
+                # ZERO-ILLUSION ARVOSTUSSUODATIN
                 # ==========================================
                 t_pe = fast.get("trailingPE")
                 f_pe = fast.get("forwardPE")
@@ -226,7 +226,7 @@ def fetch_all_market_data():
                     rev_gr_str = f"{round(float(rev_g) * 100, 1)}%"
 
                 # ==========================================
-                # TULOSKALENTERIN AIKASUODATIN (Erottaa menneet ja tulevat Q-päivät!)
+                # TULOSKALENTERIN AIKASUODATIN
                 # ==========================================
                 e_ts = fast.get("earningsTimestamp") or fast.get("earningsTimestampStart")
                 if e_ts:
@@ -239,7 +239,6 @@ def fetch_all_market_data():
                     elif days_diff > 7:
                         next_q_str = f"📅{date_fmt}({days_diff}pv)"
                     else:
-                        # Päivämäärä on menneisyydessä -> Q-tulos on jo julkaistu!
                         next_q_str = f"✅Ohitettu({date_fmt})"
             except Exception:
                 pass
@@ -278,12 +277,11 @@ def fetch_all_market_data():
                 ("60d-Low", low_60d),
                 ("52w-Low", low_52w)
             ]
-             strictly_below = [(name, val) for name, val in candidates if val <= live_price * 0.999]
+            strictly_below = [(name, val) for name, val in candidates if val <= live_price * 0.999]
             if strictly_below:
                 support_type, dyn_support_raw = max(strictly_below, key=lambda x: x[1])
                 dyn_support = round(dyn_support_raw, 2)
             else:
-                # Jos osake teki juuri uuden 52w pohjan, lasketaan 1x ADR-tukitaso alapuolelle
                 dyn_support = round(live_price * (1.0 - (adr_pct / 100.0)), 2)
                 support_type = "ADR-Floor"
 
