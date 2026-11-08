@@ -10,42 +10,42 @@ import pytz
 # SIVUN ASETUKSET
 # ==========================================
 st.set_page_config(
-    page_title="ST0 Market Scout v2.4",
+    page_title="ST0 Market Scout v2.5",
     page_icon="📡",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
 # ==========================================
-# DYNAAMINEN KONFIGURAATIO & UUTISANKKURIT (04_TICKER_DNA)
+# TARKAT YHTIÖKOHTAISET UUTISANKKURIT (Ei geneerisiä 'ai' tai 'stock' sanoja!)
 # ==========================================
 TICKERS = {
     # KORI 1: Core Compounders
-    "GOOG":    {"yf": ["GOOG"],          "bucket": "KORI 1: Core",      "dna_ma": 200, "kw": ["alphabet", "google", "cloud", "waymo", "gemini", "tpu", "ai", "search", "doj"]},
-    "TTWO":    {"yf": ["TTWO"],          "bucket": "KORI 1: Core",      "dna_ma": 200, "kw": ["take-two", "gta", "rockstar", "gaming", "ttwo", "game"]},
-    "AAPL":    {"yf": ["AAPL"],          "bucket": "KORI 1: Core",      "dna_ma": 200, "kw": ["apple", "iphone", "ipad", "mac", "tim cook", "aapl", "china", "foxconn"]},
-    "META":    {"yf": ["META"],          "bucket": "KORI 1: Core",      "dna_ma": 100, "kw": ["meta", "zuckerberg", "instagram", "whatsapp", "llama", "ai", "ad"]},
+    "GOOG":    {"yf": ["GOOG"],          "bucket": "KORI 1: Core",      "dna_ma": 200, "kw": ["alphabet", "google", "waymo", "gemini", "tpu", "youtube", "sundar", "doj"]},
+    "TTWO":    {"yf": ["TTWO"],          "bucket": "KORI 1: Core",      "dna_ma": 200, "kw": ["take-two", "gta", "rockstar", "ttwo", "zynga", "2k"]},
+    "AAPL":    {"yf": ["AAPL"],          "bucket": "KORI 1: Core",      "dna_ma": 200, "kw": ["apple", "iphone", "ipad", "mac", "tim cook", "aapl", "foxconn"]},
+    "META":    {"yf": ["META"],          "bucket": "KORI 1: Core",      "dna_ma": 100, "kw": ["meta", "zuckerberg", "instagram", "whatsapp", "llama", "threads"]},
     # KORI 2: AI & Semi Stack
-    "AVGO":    {"yf": ["AVGO"],          "bucket": "KORI 2: AI/Semi",   "dna_ma": 50,  "kw": ["broadcom", "avgo", "asic", "vmware", "hock tan", "chip", "ai"]},
-    "NVDA":    {"yf": ["NVDA"],          "bucket": "KORI 2: AI/Semi",   "dna_ma": 50,  "kw": ["nvidia", "nvda", "blackwell", "rubin", "jensen", "gpu", "ai", "chip", "datacenter"]},
-    "NBIS":    {"yf": ["NBIS"],          "bucket": "KORI 2: AI/Semi",   "dna_ma": 50,  "kw": ["nebius", "nbis", "gpu", "cloud", "ai", "data center", "datacenter"]},
-    "MU":      {"yf": ["MU"],            "bucket": "KORI 2: AI/Semi",   "dna_ma": 100, "kw": ["micron", "hbm", "dram", "nand", "memory", "chip", "ai"]},
-    "TSM":     {"yf": ["TSM"],           "bucket": "KORI 2: AI/Semi",   "dna_ma": 50,  "kw": ["tsmc", "taiwan semi", "foundry", "cowos", "wafer", "chip", "ai"]},
-    "ASML":    {"yf": ["ASML"],          "bucket": "KORI 2: AI/Semi",   "dna_ma": 200, "kw": ["asml", "euv", "lithography", "chip", "semiconductor", "bookings"]},
+    "AVGO":    {"yf": ["AVGO"],          "bucket": "KORI 2: AI/Semi",   "dna_ma": 50,  "kw": ["broadcom", "avgo", "vmware", "hock tan", "custom chip", "xpu"]},
+    "NVDA":    {"yf": ["NVDA"],          "bucket": "KORI 2: AI/Semi",   "dna_ma": 50,  "kw": ["nvidia", "nvda", "blackwell", "rubin", "jensen", "geforce", "cuda"]},
+    "NBIS":    {"yf": ["NBIS"],          "bucket": "KORI 2: AI/Semi",   "dna_ma": 50,  "kw": ["nebius", "nbis", "arkady", "toloka", "avride"]},
+    "MU":      {"yf": ["MU"],            "bucket": "KORI 2: AI/Semi",   "dna_ma": 100, "kw": ["micron", "hbm", "dram", "nand", "sanjay", "memory"]},
+    "TSM":     {"yf": ["TSM"],           "bucket": "KORI 2: AI/Semi",   "dna_ma": 50,  "kw": ["tsmc", "taiwan semi", "cowos", "foundry", "wafer"]},
+    "ASML":    {"yf": ["ASML"],          "bucket": "KORI 2: AI/Semi",   "dna_ma": 200, "kw": ["asml", "euv", "lithography", "fouquet", "bookings"]},
     # KORI 3: High-Beta & Frontier
-    "SPCX":    {"yf": ["SPCX", "DXYZ"],  "bucket": "KORI 3: High-Beta", "dna_ma": 50,  "kw": ["spacex", "starlink", "starship", "musk", "space", "rocket", "spcx"]},
-    "MSTR":    {"yf": ["MSTR"],          "bucket": "KORI 3: High-Beta", "dna_ma": 50,  "kw": ["microstrategy", "strategy", "saylor", "bitcoin", "btc", "mstr"]},
+    "SPCX":    {"yf": ["SPCX", "DXYZ"],  "bucket": "KORI 3: High-Beta", "dna_ma": 50,  "kw": ["spacex", "starlink", "starship", "falcon", "spcx", "dxyz"]},
+    "MSTR":    {"yf": ["MSTR"],          "bucket": "KORI 3: High-Beta", "dna_ma": 50,  "kw": ["microstrategy", "strategy", "saylor", "mstr"]},
     # KORI 4: Suomi / EUR
-    "NOKIA":   {"yf": ["NOKIA.HE"],      "bucket": "KORI 4: Suomi",     "dna_ma": 200, "kw": ["nokia", "network", "5g", "optical", "telecom", "stock"]},
-    "WRT1V":   {"yf": ["WRT1V.HE"],      "bucket": "KORI 4: Suomi",     "dna_ma": 100, "kw": ["wärtsilä", "wartsila", "marine", "energy", "engine", "power"]},
-    "FRAMERY": {"yf": ["FRAMERY.HE"],    "bucket": "KORI 4: Suomi",     "dna_ma": 50,  "kw": ["framery", "pod", "office", "earnings", "q3", "q4"]},
+    "NOKIA":   {"yf": ["NOKIA.HE"],      "bucket": "KORI 4: Suomi",     "dna_ma": 200, "kw": ["nokia", "lundmark", "hotard", "infinera", "5g", "telecom"]},
+    "WRT1V":   {"yf": ["WRT1V.HE"],      "bucket": "KORI 4: Suomi",     "dna_ma": 100, "kw": ["wärtsilä", "wartsila", "agnevall", "marine", "energy storage"]},
+    "FRAMERY": {"yf": ["FRAMERY.HE"],    "bucket": "KORI 4: Suomi",     "dna_ma": 50,  "kw": ["framery", "hlt", "office pod"]},
     # SEURANTALISTA (Watchlist)
-    "BTC-USD": {"yf": ["BTC-USD"],       "bucket": "WATCHLIST",         "dna_ma": 50,  "kw": ["bitcoin", "btc", "crypto", "etf", "halving", "fed"]},
-    "AMZN":    {"yf": ["AMZN"],          "bucket": "WATCHLIST",         "dna_ma": 100, "kw": ["amazon", "aws", "amzn", "jassy", "cloud", "retail", "ai"]},
-    "AMD":     {"yf": ["AMD"],           "bucket": "WATCHLIST",         "dna_ma": 200, "kw": ["amd", "advanced micro", "lisa su", "instinct", "epyc", "ryzen", "gpu", "ai"]},
-    "ORCL":    {"yf": ["ORCL"],          "bucket": "WATCHLIST",         "dna_ma": 100, "kw": ["oracle", "orcl", "ellison", "oci", "cloud", "database", "ai"]},
-    "TSLA":    {"yf": ["TSLA"],          "bucket": "WATCHLIST",         "dna_ma": 200, "kw": ["tesla", "tsla", "musk", "ev", "fsd", "robotaxi", "megapack", "cybercab"]},
-    "NESTE":   {"yf": ["NESTE.HE"],      "bucket": "WATCHLIST",         "dna_ma": 200, "kw": ["neste", "renewable", "saf", "diesel", "refinery", "margin"]},
+    "BTC-USD": {"yf": ["BTC-USD"],       "bucket": "WATCHLIST",         "dna_ma": 50,  "kw": ["bitcoin", "btc", "crypto", "ibit", "etf"]},
+    "AMZN":    {"yf": ["AMZN"],          "bucket": "WATCHLIST",         "dna_ma": 100, "kw": ["amazon", "aws", "amzn", "jassy", "prime"]},
+    "AMD":     {"yf": ["AMD"],           "bucket": "WATCHLIST",         "dna_ma": 200, "kw": ["amd", "advanced micro", "lisa su", "instinct", "epyc", "ryzen"]},
+    "ORCL":    {"yf": ["ORCL"],          "bucket": "WATCHLIST",         "dna_ma": 100, "kw": ["oracle", "orcl", "ellison", "oci", "cerner"]},
+    "TSLA":    {"yf": ["TSLA"],          "bucket": "WATCHLIST",         "dna_ma": 200, "kw": ["tesla", "tsla", "musk", "cybercab", "robotaxi", "megapack", "fsd"]},
+    "NESTE":   {"yf": ["NESTE.HE"],      "bucket": "WATCHLIST",         "dna_ma": 200, "kw": ["neste", "malinen", "saf", "renewable diesel", "porvoo", "rotterdam"]},
 }
 
 MACRO_TICKERS = {
@@ -59,7 +59,8 @@ MACRO_TICKERS = {
 
 NOISE_PHRASES = [
     "stocks to buy", "stock to buy", "if you invested", "motley fool",
-    "why this stock", "millionaire-maker", "retirees", "dividend stocks"
+    "why this stock", "millionaire-maker", "retirees", "dividend stocks",
+    "these 3 stocks", "3 stocks", "2 stocks", "top stocks", "stocks to watch"
 ]
 
 # ==========================================
@@ -122,7 +123,7 @@ def fetch_all_market_data():
         except Exception:
             macro_info[name] = {"price": 0.0, "chg_pct": 0.0, "chg_20d": 0.0}
 
-    # 2. YHTIÖKOHTAINEN DATA + UNIIKIT YHTIÖUUTISET
+    # 2. YHTIÖKOHTAINEN DATA + TARKAT YHTIÖUUTISET
     rows = []
     company_news = []
 
@@ -149,6 +150,7 @@ def fetch_all_market_data():
             day_high = float(hist["High"].iloc[-1])
             day_low = float(hist["Low"].iloc[-1])
             high_52w = float(hist["High"].max())
+            low_52w = float(hist["Low"].min())
             low_60d = float(hist["Low"].tail(60).min())
 
             avg_vol_20 = float(vol_s.tail(21).iloc[:-1].mean()) if len(vol_s) >= 21 else float(vol_s.mean())
@@ -182,7 +184,7 @@ def fetch_all_market_data():
                     prev_close = float(reg_prev)
 
                 # ==========================================
-                # VALUUTTA- & API-PUHDISTETTU ARVOSTUS (Ei '|' merkkiä solun sisään!)
+                # ZERO-ILLUSION ARVOSTUSSUODATIN (Estää Fwd P/E, EV/EB & PB valuuttavirheet!)
                 # ==========================================
                 t_pe = fast.get("trailingPE")
                 f_pe = fast.get("forwardPE")
@@ -191,48 +193,54 @@ def fetch_all_market_data():
                 curr_code = fast.get("currency", "USD")
                 fin_curr = fast.get("financialCurrency", curr_code)
 
-                # Jos tuloslaskelman valuutta != pörssivaluutta (esim. TSM: USD vs TWD), EV/EBITDA on vääristynyt
                 same_currency = (curr_code == fin_curr)
                 valid_ev = (ev_ebitda is not None and 2.0 < float(ev_ebitda) < 150.0 and same_currency)
+                valid_pb = (pb is not None and 0.2 < float(pb) < 35.0 and same_currency)
 
                 parts = []
-                # Tarkistetaan Fwd P/E:n järkevyys suhteessa Trailing P/E:hen ja EV/EBITDA:an
                 f_pe_valid = False
                 if f_pe and 4.0 < float(f_pe) < 200.0:
                     f_val = float(f_pe)
                     if t_pe and float(t_pe) > 0 and f_val < float(t_pe) * 0.45 and f_val < 16.0:
-                        f_pe_valid = False  # Yahoo jakajavirhe
+                        f_pe_valid = False
                     elif valid_ev and f_val < float(ev_ebitda) * 0.60 and f_val < 16.0:
-                        f_pe_valid = False  # Yahoo jakajavirhe (esim. NVDA Fwd 11.7x vs EV/EB 22.2x)
+                        f_pe_valid = False
                     else:
                         f_pe_valid = True
 
                 if f_pe_valid:
                     parts.append(f"Fwd:{round(float(f_pe),1)}x")
-                elif t_pe and 2.0 < float(t_pe) < 250.0:
+                if t_pe and 2.0 < float(t_pe) < 250.0 and (not f_pe_valid or not valid_ev):
                     parts.append(f"PE:{round(float(t_pe),1)}x(T)")
 
                 if valid_ev:
                     parts.append(f"EV/EB:{round(float(ev_ebitda),1)}x")
-                elif pb and float(pb) > 0:
+                elif valid_pb and len(parts) < 2:
                     parts.append(f"PB:{round(float(pb),1)}x")
 
                 if parts:
-                    val_str = " / ".join(parts)  # Käytetään '/' eikä '|' jotta Markdown-taulukko pysyy 100% ehjänä!
+                    val_str = " / ".join(parts[:2])
 
                 rev_g = fast.get("revenueGrowth")
                 if rev_g is not None:
                     rev_gr_str = f"{round(float(rev_g) * 100, 1)}%"
 
-                # Seuraava tulosjulkistuspäivä (P.10 Earnings Freeze)
+                # ==========================================
+                # TULOSKALENTERIN AIKASUODATIN (Erottaa menneet ja tulevat Q-päivät!)
+                # ==========================================
                 e_ts = fast.get("earningsTimestamp") or fast.get("earningsTimestampStart")
                 if e_ts:
                     e_dt = datetime.fromtimestamp(int(e_ts), tz=tz_fi)
                     days_diff = (e_dt.date() - now_dt.date()).days
-                    next_q_str = e_dt.strftime("%d.%m.")
+                    date_fmt = e_dt.strftime("%d.%m.")
                     if 0 <= days_diff <= 7:
-                        next_q_str = f"⚠️{next_q_str}({days_diff}pv!)"
+                        next_q_str = f"⚠️{date_fmt}({days_diff}pv!)"
                         earnings_soon = True
+                    elif days_diff > 7:
+                        next_q_str = f"📅{date_fmt}({days_diff}pv)"
+                    else:
+                        # Päivämäärä on menneisyydessä -> Q-tulos on jo julkaistu!
+                        next_q_str = f"✅Ohitettu({date_fmt})"
             except Exception:
                 pass
 
@@ -259,33 +267,35 @@ def fetch_all_market_data():
             rs_1d = round(chg_1d - bench_1d, 2)
             rs_20d = round(chg_20d - bench_20d, 1)
 
+            # ==========================================
+            # EHDOTON TUKITASOLUKKO (Dyn Tuki on AINA <= nykyhinta!)
+            # ==========================================
             candidates = [
                 ("SMA50", sma50),
                 ("SMA100", sma100),
                 ("SMA200", sma200),
                 ("BB-Low(2σ)", lower_bb),
-                ("60d-Low", low_60d)
+                ("60d-Low", low_60d),
+                ("52w-Low", low_52w)
             ]
-            below_supports = [(name, val) for name, val in candidates if val <= live_price * 1.015]
-            if below_supports:
-                support_type, dyn_support_raw = max(below_supports, key=lambda x: x[1])
+             strictly_below = [(name, val) for name, val in candidates if val <= live_price * 0.999]
+            if strictly_below:
+                support_type, dyn_support_raw = max(strictly_below, key=lambda x: x[1])
                 dyn_support = round(dyn_support_raw, 2)
             else:
-                dyn_support = round(low_60d, 2)
-                support_type = "60d-Low(Broken)"
+                # Jos osake teki juuri uuden 52w pohjan, lasketaan 1x ADR-tukitaso alapuolelle
+                dyn_support = round(live_price * (1.0 - (adr_pct / 100.0)), 2)
+                support_type = "ADR-Floor"
 
             above_resistances = [val for _, val in [("SMA50", sma50), ("SMA200", sma200), ("BB-High", upper_bb), ("52w-High", high_52w)] if val >= live_price * 1.03]
-            dyn_trim = round(min(above_resistances) if above_resistances else upper_bb, 2)
+            dyn_trim = round(min(above_resistances) if above_resistances else live_price * (1.0 + (2.0 * adr_pct / 100.0)), 2)
 
-            # ==========================================
-            # TARKKA SIGNAALILOGIIKKA (Ei '|' merkkiä solun sisään!)
-            # ==========================================
             dist_to_support_pct = ((live_price / dyn_support) - 1) * 100
             status_flag = "OK"
 
             if rsi_val <= 33.0:
                 status_flag = f"🟢 RSI YLIMYYTY ({round(rsi_val,1)}) -> Tuki: {dyn_support}"
-            elif -1.5 <= dist_to_support_pct <= 2.5 and rsi_val <= 46.0:
+            elif 0.0 <= dist_to_support_pct <= 2.5 and rsi_val <= 46.0:
                 status_flag = f"🟢 TESTAA {support_type}-TUKEA ({dyn_support})"
             elif rsi_val >= 72.0:
                 status_flag = f"🟠 RSI YLIOSTETTU ({round(rsi_val,1)}) -> Trim: {dyn_trim}"
@@ -315,7 +325,7 @@ def fetch_all_market_data():
                 "RS (1d / 20d)": f"{rs_1d}% / {rs_20d}%",
                 "Dyn Tuki": f"{dyn_support} ({support_type})",
                 "Dyn Trim": dyn_trim,
-                "Next Q": next_q_str,
+                "Q-Tila": next_q_str,
                 "Signaali": status_flag
             })
 
@@ -324,17 +334,11 @@ def fetch_all_market_data():
                 if raw_news:
                     keywords = cfg.get("kw", [sym.lower()])
                     matched_title = None
-                    for item in raw_news[:6]:
+                    for item in raw_news[:8]:
                         title = item.get("title") or item.get("content", {}).get("title", "")
                         if is_clean_headline(title) and title not in seen_titles:
                             t_low = title.lower()
                             if any(k in t_low for k in keywords):
-                                matched_title = title
-                                break
-                    if not matched_title:
-                        for item in raw_news[:3]:
-                            title = item.get("title") or item.get("content", {}).get("title", "")
-                            if is_clean_headline(title) and title not in seen_titles:
                                 matched_title = title
                                 break
                     if matched_title:
@@ -357,7 +361,7 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
     spy = macro_info.get("SPY", {})
     fx = macro_info.get("EURUSD", {})
 
-    md = f"# 📡 ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (FINAL MASTER v2.4)\n"
+    md = f"# 📡 ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (ZERO-ILLUSION v2.5)\n"
     md += f"**AIKALEIMA:** `{now_str}` `[LIVE_USER_FEED: 0-3min]`\n"
     md += (
         f"**MAKRO & SEKTORIT:** `VIX: {vix.get('price')} ({vix.get('chg_pct')}%)` | "
@@ -380,23 +384,23 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
         md += "## 🚨 AKTIIVISET SIGNAALIT & POIKKEAMAT\n"
         for _, r in alerts_df.iterrows():
             md += (
-                f"- **{r['Ticker']} ({r['Hinta']} | {r['Muutos %']}% | RVOL: {r['RVOL']} | 52w: {r['52w Huipusta %']}% | {r['Arvostus']} | RevGr: {r['RevGr %']} | Q: {r['Next Q']}):** "
+                f"- **{r['Ticker']} ({r['Hinta']} | {r['Muutos %']}% | RVOL: {r['RVOL']} | 52w: {r['52w Huipusta %']}% | {r['Arvostus']} | RevGr: {r['RevGr %']} | Q: {r['Q-Tila']}):** "
                 f"{r['Signaali']} | Wilder RSI: {r['RSI(14)']} | RS(1d/20d): {r['RS (1d / 20d)']} | Dyn Tuki: {r['Dyn Tuki']} | Dyn Trim: {r['Dyn Trim']}\n"
             )
         md += "\n"
 
     md += "## 📊 21 KOHTEEN FUNDAMENTTI-, VOLYYMI-, TEKNINEN & SUHTEELLINEN MATRIISI\n"
-    md += "| Ticker | Kori | Hinta | Sessio | Muutos % | RVOL | 52w Huipusta | Arvostus | RevGr% | RSI(14) | vs SMA50% | vs SMA200% | ADR% | RS (1d / 20d) | Dyn Tuki | Dyn Trim | Next Q | Signaali |\n"
+    md += "| Ticker | Kori | Hinta | Sessio | Muutos % | RVOL | 52w Huipusta | Arvostus | RevGr% | RSI(14) | vs SMA50% | vs SMA200% | ADR% | RS (1d / 20d) | Dyn Tuki | Dyn Trim | Q-Tila | Signaali |\n"
     md += "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
     for _, r in df.iterrows():
         md += (
             f"| **{r['Ticker']}** | {r['Kori']} | {r['Hinta']} | {r['Sessio']} | {r['Muutos %']}% | {r['RVOL']} | "
             f"{r['52w Huipusta %']}% | {r['Arvostus']} | {r['RevGr %']} | {r['RSI(14)']} | {r['vs SMA50 %']}% | "
-            f"{r['vs SMA200 %']}% | {r['ADR %']}% | {r['RS (1d / 20d)']} | {r['Dyn Tuki']} | {r['Dyn Trim']} | {r['Next Q']} | {r['Signaali']} |\n"
+            f"{r['vs SMA200 %']}% | {r['ADR %']}% | {r['RS (1d / 20d)']} | {r['Dyn Tuki']} | {r['Dyn Trim']} | {r['Q-Tila']} | {r['Signaali']} |\n"
         )
 
     if company_news:
-        md += "\n## 📰 TUOREIMMAT YHTIÖKOHTAISET UUTISET (RELEVANSSISUODATETTU, 24H)\n"
+        md += "\n## 📰 TUOREIMMAT YHTIÖKOHTAISET UUTISET (100% KOHDENNETTU, 24H)\n"
         md += "\n".join(company_news[:18]) + "\n"
 
     return md
@@ -421,7 +425,7 @@ def push_to_google_drive_webhook(markdown_text, webhook_url):
 # ==========================================
 # KÄYTTÖLIITTYMÄ (UI)
 # ==========================================
-st.title("📡 ST0 Market Scout v2.4 (Final Master PWA)")
+st.title("📡 ST0 Market Scout v2.5 (Zero-Illusion Master PWA)")
 
 if st.button("🔄 Päivitä Live-Kurssit & Lähetä Driveen", type="primary", use_container_width=True):
     st.cache_data.clear()
@@ -443,5 +447,5 @@ with st.expander("📋 VARAVAIHTOEHTO: Kopioi raportti leikepöydälle (1 klikka
 st.subheader("🚨 Aktiiviset Signaalit")
 st.dataframe(df[df["Signaali"] != "OK"], use_container_width=True, hide_index=True)
 
-st.subheader("📊 Koko Salkku & Seurantalista (v2.4 Final Master Engine)")
+st.subheader("📊 Koko Salkku & Seurantalista (v2.5 Zero-Illusion Engine)")
 st.dataframe(df, use_container_width=True, hide_index=True)
