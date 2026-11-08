@@ -10,7 +10,7 @@ import pytz
 # SIVUN ASETUKSET
 # ==========================================
 st.set_page_config(
-    page_title="ST0 Market Scout v2.2",
+    page_title="ST0 Market Scout v2.3",
     page_icon="📡",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -48,7 +48,20 @@ TICKERS = {
     "NESTE":   {"yf": ["NESTE.HE"],      "bucket": "WATCHLIST",         "dna_ma": 200, "kw": ["neste", "renewable", "saf", "diesel", "refinery", "margin"]},
 }
 
-MACRO_TICKERS = {"VIX": "^VIX", "QQQ": "QQQ", "SPY": "SPY", "EURUSD": "EURUSD=X"}
+MACRO_TICKERS = {
+    "VIX": "^VIX",
+    "US10Y": "^TNX",
+    "QQQ": "QQQ",
+    "SMH": "SMH",
+    "SPY": "SPY",
+    "EURUSD": "EURUSD=X"
+}
+
+# Klikkiotsikoiden suodatuslista (estää kohinan makro- ja sektoriuutisissa)
+NOISE_PHRASES = [
+    "stocks to buy", "stock to buy", "if you invested", "motley fool",
+    "why this stock", "millionaire-maker", "retirees", "dividend stocks"
+]
 
 # ==========================================
 # WILDERIN VIRALLINEN RSI(14)
@@ -62,6 +75,12 @@ def calc_wilder_rsi(series, period=14):
     rs = avg_gain / avg_loss.replace(0, np.nan)
     return 100.0 - (100.0 / (1.0 + rs))
 
+def is_clean_headline(title):
+    if not title or len(title) < 15:
+        return False
+    t_low = title.lower()
+    return not any(bad in t_low for bad in NOISE_PHRASES)
+
 @st.cache_data(ttl=120)
 def fetch_all_market_data():
     tz_fi = pytz.timezone("Europe/Helsinki")
@@ -70,7 +89,11 @@ def fetch_all_market_data():
     macro_info = {}
     qqq_chg_1d, qqq_chg_20d = 0.0, 0.0
     spy_chg_1d, spy_chg_20d = 0.0, 0.0
+    seen_titles = set()
+    macro_news = []
+    sector_news = []
 
+    # 1. MAKRODATA + 3 MAKROUUTISTA & 3 SEKTORIUUTISTA
     for name, yf_sym in MACRO_TICKERS.items():
         try:
             t = yf.Ticker(yf_sym)
@@ -85,12 +108,24 @@ def fetch_all_market_data():
                     qqq_chg_1d, qqq_chg_20d = chg_1d, chg_20d
                 elif name == "SPY":
                     spy_chg_1d, spy_chg_20d = chg_1d, chg_20d
+
+            # Poimitaan Makrouutiset (SPY / US10Y) ja Sektoriuutiset (SMH / QQQ)
+            raw_m_news = t.news
+            if raw_m_news:
+                for item in raw_m_news[:5]:
+                    title = item.get("title") or item.get("content", {}).get("title", "")
+                    if is_clean_headline(title) and title not in seen_titles:
+                        seen_titles.add(title)
+                        if name in ["SPY", "US10Y", "VIX"] and len(macro_news) < 3:
+                            macro_news.append(f"- **[MAKRO / {name}]:** {title}")
+                        elif name in ["SMH", "QQQ"] and len(sector_news) < 3:
+                            sector_news.append(f"- **[SEKTORI / {name}]:** {title}")
         except Exception:
             macro_info[name] = {"price": 0.0, "chg_pct": 0.0, "chg_20d": 0.0}
 
+    # 2. YHTIÖKOHTAINEN DATA + UNIIKIT YHTIÖUUTISET
     rows = []
-    news_items = []
-    seen_titles = set()
+    company_news = []
 
     for sym, cfg in TICKERS.items():
         try:
@@ -117,12 +152,10 @@ def fetch_all_market_data():
             high_52w = float(hist["High"].max())
             low_60d = float(hist["Low"].tail(60).min())
 
-            # Suhteellinen volyymi (RVOL = viimeisin volyymi vs 20pv keskiarvo)
             avg_vol_20 = float(vol_s.tail(21).iloc[:-1].mean()) if len(vol_s) >= 21 else float(vol_s.mean())
             last_vol = float(vol_s.iloc[-1])
             rvol = round(last_vol / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
 
-            # Fundamentit, Arvostus (Sanity-Checked) & Pre/After-Hours
             live_price = last_close
             market_session = "REG/CLOSE"
             val_str = "N/A"
@@ -146,17 +179,15 @@ def fetch_all_market_data():
                     live_price = float(curr_p)
                     prev_close = float(reg_prev)
 
-                # ARVOSTUSKERTOIMIEN SANITY CHECK (Estää Yahoo Financen rikkinäisen Fwd P/E -ansan!)
+                # ARVOSTUSKERTOIMIEN SANITY CHECK (Estää rikkinäisen Fwd P/E -ansan)
                 t_pe = fast.get("trailingPE")
                 f_pe = fast.get("forwardPE")
                 ev_ebitda = fast.get("enterpriseToEbitda")
                 pb = fast.get("priceToBook")
 
                 parts = []
-                # Hyväksytään Fwd P/E vain jos se on realistisessa suhteessa Trailing P/E:hen tai >12x (pl. sykliset)
                 if f_pe and f_pe > 0:
                     if t_pe and t_pe > 0 and (f_pe < t_pe * 0.35 and f_pe < 15.0):
-                        # Yahoo API jakajavirhe havaittu (esim. NVDA 11.7x tai MU 3.3x) -> näytetään Trailing P/E + EV/EBITDA
                         parts.append(f"PE:{round(float(t_pe),1)}x(T)")
                     else:
                         parts.append(f"Fwd:{round(float(f_pe),1)}x")
@@ -182,7 +213,6 @@ def fetch_all_market_data():
             dd_52w_pct = ((live_price / high_52w) - 1) * 100
             rsi_val = float(calc_wilder_rsi(close_s).iloc[-1]) if len(close_s) >= 15 else 50.0
 
-            # Liukuvat keskiarvot & Bollinger-kanavat (20pv ± 2σ)
             sma20 = float(close_s.rolling(20).mean().iloc[-1])
             std20 = float(close_s.rolling(20).std().iloc[-1])
             lower_bb = max(0.01, sma20 - 2.0 * std20)
@@ -196,15 +226,11 @@ def fetch_all_market_data():
             dist_sma200 = ((live_price / sma200) - 1) * 100
             adr_pct = float(((hist["High"] - hist["Low"]) / hist["Low"] * 100).tail(14).mean())
 
-            # Suhteellinen vahvuus 1d & 20d (USA/Tech vs QQQ, Suomi vs SPY)
             bench_1d = spy_chg_1d if ".HE" in used_yf else qqq_chg_1d
             bench_20d = spy_chg_20d if ".HE" in used_yf else qqq_chg_20d
             rs_1d = round(chg_1d - bench_1d, 2)
             rs_20d = round(chg_20d - bench_20d, 1)
 
-            # ==========================================
-            # AITO RAKENTEELLINEN TUKITASOPORRAS (True Support Ladder)
-            # ==========================================
             candidates = [
                 ("SMA50", sma50),
                 ("SMA100", sma100),
@@ -223,9 +249,6 @@ def fetch_all_market_data():
             above_resistances = [val for _, val in [("SMA50", sma50), ("SMA200", sma200), ("BB-High", upper_bb), ("52w-High", high_52w)] if val >= live_price * 1.03]
             dyn_trim = round(min(above_resistances) if above_resistances else upper_bb, 2)
 
-            # ==========================================
-            # TARKKA SIGNAALILOGIIKKA (v2.2 Institutional Alpha)
-            # ==========================================
             dist_to_support_pct = ((live_price / dyn_support) - 1) * 100
             status_flag = "OK"
 
@@ -261,7 +284,7 @@ def fetch_all_market_data():
                 "Signaali": status_flag
             })
 
-            # RELEVANSSISUODATETTU UUTISHAKU (Estää aiheettomat klikkiotsikot)
+            # RELEVANSSISUODATETTU YHTIÖUUTISHAKU
             try:
                 raw_news = t.news
                 if raw_news:
@@ -269,21 +292,20 @@ def fetch_all_market_data():
                     matched_title = None
                     for item in raw_news[:6]:
                         title = item.get("title") or item.get("content", {}).get("title", "")
-                        if title and title not in seen_titles:
+                        if is_clean_headline(title) and title not in seen_titles:
                             t_low = title.lower()
                             if any(k in t_low for k in keywords):
                                 matched_title = title
                                 break
-                    # Jos yksikään ei osunut avainsanaan, otetaan ensimmäinen uniikki
                     if not matched_title:
-                        for item in raw_news[:2]:
+                        for item in raw_news[:3]:
                             title = item.get("title") or item.get("content", {}).get("title", "")
-                            if title and title not in seen_titles:
+                            if is_clean_headline(title) and title not in seen_titles:
                                 matched_title = title
                                 break
                     if matched_title:
                         seen_titles.add(matched_title)
-                        news_items.append(f"- **{sym}:** {matched_title}")
+                        company_news.append(f"- **{sym}:** {matched_title}")
             except Exception:
                 pass
 
@@ -291,17 +313,33 @@ def fetch_all_market_data():
             continue
 
     df = pd.DataFrame(rows)
-    return now_str, macro_info, df, news_items
+    return now_str, macro_info, df, macro_news, sector_news, company_news
 
-def build_ai_markdown_report(now_str, macro_info, df, news_items):
+def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, company_news):
     vix = macro_info.get("VIX", {})
+    us10y = macro_info.get("US10Y", {})
     qqq = macro_info.get("QQQ", {})
+    smh = macro_info.get("SMH", {})
     spy = macro_info.get("SPY", {})
     fx = macro_info.get("EURUSD", {})
 
-    md = f"# 📡 ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (INSTITUTIONAL v2.2)\n"
+    md = f"# 📡 ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (MACRO & ALPHA v2.3)\n"
     md += f"**AIKALEIMA:** `{now_str}` `[LIVE_USER_FEED: 0-3min]`\n"
-    md += f"**MAKRO:** `VIX: {vix.get('price')} ({vix.get('chg_pct')}%)` | `QQQ: 1d {qqq.get('chg_pct')}% / 20d {qqq.get('chg_20d')}%` | `SPY: 1d {spy.get('chg_pct')}% / 20d {spy.get('chg_20d')}%` | `EUR/USD: {fx.get('price')}`\n\n"
+    md += (
+        f"**MAKRO & SEKTORIT:** `VIX: {vix.get('price')} ({vix.get('chg_pct')}%)` | "
+        f"`US10Y Korko: {us10y.get('price')}% ({us10y.get('chg_pct')}%)` | "
+        f"`SMH (Semi): 1d {smh.get('chg_pct')}% / 20d {smh.get('chg_20d')}%` | "
+        f"`QQQ: 1d {qqq.get('chg_pct')}% / 20d {qqq.get('chg_20d')}%` | "
+        f"`SPY: 1d {spy.get('chg_pct')}%` | `EUR/USD: {fx.get('price')}`\n\n"
+    )
+
+    if macro_news or sector_news:
+        md += "## 🌍 MAKRO- & SEKTORITUTKA (TOP-DOWN CONTEXT)\n"
+        for mn in macro_news:
+            md += f"{mn}\n"
+        for sn in sector_news:
+            md += f"{sn}\n"
+        md += "\n"
 
     alerts_df = df[df["Signaali"] != "OK"]
     if not alerts_df.empty:
@@ -323,9 +361,9 @@ def build_ai_markdown_report(now_str, macro_info, df, news_items):
             f"{r['vs SMA200 %']}% | {r['ADR %']}% | {r['RS (1d / 20d)']} | {r['Dyn Tuki']} | {r['Dyn Trim']} | {r['Signaali']} |\n"
         )
 
-    if news_items:
+    if company_news:
         md += "\n## 📰 TUOREIMMAT YHTIÖKOHTAISET UUTISET (RELEVANSSISUODATETTU, 24H)\n"
-        md += "\n".join(news_items[:18]) + "\n"
+        md += "\n".join(company_news[:18]) + "\n"
 
     return md
 
@@ -349,13 +387,13 @@ def push_to_google_drive_webhook(markdown_text, webhook_url):
 # ==========================================
 # KÄYTTÖLIITTYMÄ (UI)
 # ==========================================
-st.title("📡 ST0 Market Scout v2.2 (Institutional Alpha PWA)")
+st.title("📡 ST0 Market Scout v2.3 (Macro, Sector & Alpha PWA)")
 
 if st.button("🔄 Päivitä Live-Kurssit & Lähetä Driveen", type="primary", use_container_width=True):
     st.cache_data.clear()
 
-now_str, macro_info, df, news_items = fetch_all_market_data()
-ai_report_md = build_ai_markdown_report(now_str, macro_info, df, news_items)
+now_str, macro_info, df, macro_news, sector_news, company_news = fetch_all_market_data()
+ai_report_md = build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, company_news)
 
 webhook_url = get_webhook_url()
 ok, msg = push_to_google_drive_webhook(ai_report_md, webhook_url)
@@ -371,5 +409,5 @@ with st.expander("📋 VARAVAIHTOEHTO: Kopioi raportti leikepöydälle (1 klikka
 st.subheader("🚨 Aktiiviset Signaalit")
 st.dataframe(df[df["Signaali"] != "OK"], use_container_width=True, hide_index=True)
 
-st.subheader("📊 Koko Salkku & Seurantalista (v2.2 Institutional Alpha Engine)")
+st.subheader("📊 Koko Salkku & Seurantalista (v2.3 Institutional Alpha Engine)")
 st.dataframe(df, use_container_width=True, hide_index=True)
