@@ -10,7 +10,7 @@ import pytz
 # SIVUN ASETUKSET
 # ==========================================
 st.set_page_config(
-    page_title="ST0 Market Scout v3.2",
+    page_title="ST0 Market Scout v3.3",
     page_icon="📡",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -48,7 +48,7 @@ TICKERS = {
     "TSLA":    {"yf": ["TSLA"],          "bucket": "WATCH",    "dna_ma": 200, "kw": ["tesla", "tsla", "musk", "cybercab", "robotaxi", "megapack", "fsd"]},
 }
 
-# Sisältää nyt myös 24h-indeksifutuurit (NQ=F ja ES=F), jotka liikkuvat läpi yön klo 01:00–24:00 EET!
+# Sisältää 24h-indeksifutuurit (NQ=F ja ES=F), jotka liikkuvat läpi yön klo 01:00–24:00 EET
 MACRO_TICKERS = {
     "VIX": "^VIX",
     "US10Y": "^TNX",
@@ -374,7 +374,7 @@ def fetch_all_market_data():
                                 break
                     if matched_title:
                         seen_titles.add(matched_title)
-                        company_news.append(f"- {sym}: {matched_title[:115]}")
+                        company_news.append(f"- **{sym}:** {matched_title[:115]}")
             except Exception:
                 pass
 
@@ -438,7 +438,8 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
 
     if company_news:
         md += "## 3. YHTIOKOHTAISET UUTISET (24H)\n"
-        md += "\n".join(company_news[:21]) + "\n"
+        clean_c_news = [cn.replace("**", "") for cn in company_news[:21]]
+        md += "\n".join(clean_c_news) + "\n"
 
     md += "[EOF: 21/21 OK]\n"
     return md
@@ -461,9 +462,9 @@ def push_to_google_drive_webhook(markdown_text, webhook_url):
         return False, f"Yhteysvirhe: {str(e)}"
 
 # ==========================================
-# KÄYTTÖLIITTYMÄ (UI)
+# KÄYTTÖLIITTYMÄ (UI) — IHMISEN NÄKYMÄ
 # ==========================================
-st.title("📡 ST0 Market Scout v3.2 (24h Futures & Gold Master PWA)")
+st.title("📡 ST0 Market Scout v3.3 (24h Futures & Gold Master PWA)")
 
 if st.button("🔄 Päivitä Live-Kurssit & Lähetä Driveen", type="primary", use_container_width=True):
     st.cache_data.clear()
@@ -482,6 +483,26 @@ else:
 with st.expander("📋 VARAVAIHTOEHTO: Kopioi raportti leikepöydälle (1 klikkaus oikeasta yläkulmasta)", expanded=not ok):
     st.code(ai_report_md, language="markdown")
 
+# MAKROMITTARIT SIVULLA
+vix = macro_info.get("VIX", {})
+us10y = macro_info.get("US10Y", {})
+nq_f = macro_info.get("NQ_FUT", {})
+es_f = macro_info.get("ES_FUT", {})
+smh = macro_info.get("SMH", {})
+qqq = macro_info.get("QQQ", {})
+fx = macro_info.get("EURUSD", {})
+
+st.info(
+    f"**🌍 Makro & 24h-Futuurit:** "
+    f"**VIX:** {vix.get('price')} ({vix.get('chg_pct')}%) | "
+    f"**US10Y:** {us10y.get('price')}% ({us10y.get('chg_pct')}%) | "
+    f"**NQ-Fut(24h):** {nq_f.get('chg_pct')}% | "
+    f"**ES-Fut(24h):** {es_f.get('chg_pct')}% | "
+    f"**SMH:** 1d {smh.get('chg_pct')}% (20d {smh.get('chg_20d')}%) | "
+    f"**QQQ:** 1d {qqq.get('chg_pct')}% (20d {qqq.get('chg_20d')}%) | "
+    f"**EUR/USD:** {fx.get('price')}"
+)
+
 active_df = df[df["Signaali"] != "OK"]
 inactive_df = df[df["Signaali"] == "OK"]
 
@@ -492,3 +513,28 @@ st.dataframe(active_df, use_container_width=True, hide_index=True)
 
 st.subheader(f"🟢 2. Ei Aktiivisia Signaaleja ({len(inactive_df)} kpl)")
 st.dataframe(inactive_df, use_container_width=True, hide_index=True)
+
+st.divider()
+
+# 3. UUSI IHMISEN UUTISOSIO SIVULLA
+st.header("📰 3. Markkina-, Sektori- & Yhtiöuutiset (24h)")
+
+col1, col2 = st.columns([1, 2])
+
+with col1:
+    st.subheader("🌐 Makro- & Sektoritutka")
+    if macro_news or sector_news:
+        for mn in macro_news:
+            st.markdown(mn)
+        for sn in sector_news:
+            st.markdown(sn)
+    else:
+        st.caption("Ei tuoreita makro-/sektoriuutisia.")
+
+with col2:
+    st.subheader(f"🏢 Yhtiökohtaiset Uutiset ({len(company_news)} kpl)")
+    if company_news:
+        for cn in company_news[:21]:
+            st.markdown(cn)
+    else:
+        st.caption("Ei tuoreita yhtiökohtaisia uutisia.")
