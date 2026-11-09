@@ -10,7 +10,7 @@ import pytz
 # SIVUN ASETUKSET
 # ==========================================
 st.set_page_config(
-    page_title="ST0 Market Scout v3.1",
+    page_title="ST0 Market Scout v3.2",
     page_icon="📡",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -48,9 +48,12 @@ TICKERS = {
     "TSLA":    {"yf": ["TSLA"],          "bucket": "WATCH",    "dna_ma": 200, "kw": ["tesla", "tsla", "musk", "cybercab", "robotaxi", "megapack", "fsd"]},
 }
 
+# Sisältää nyt myös 24h-indeksifutuurit (NQ=F ja ES=F), jotka liikkuvat läpi yön klo 01:00–24:00 EET!
 MACRO_TICKERS = {
     "VIX": "^VIX",
     "US10Y": "^TNX",
+    "NQ_FUT": "NQ=F",
+    "ES_FUT": "ES=F",
     "QQQ": "QQQ",
     "SMH": "SMH",
     "SPY": "SPY",
@@ -94,7 +97,7 @@ def fetch_all_market_data():
     macro_news = []
     sector_news = []
 
-    # 1. MAKRODATA + 3 MAKROUUTISTA & 3 SEKTORIUUTISTA
+    # 1. MAKRODATA + 24H FUTUURIT (NQ=F, ES=F) + 3 MAKROUUTISTA & 3 SEKTORIUUTISTA
     for name, yf_sym in MACRO_TICKERS.items():
         try:
             t = yf.Ticker(yf_sym)
@@ -102,6 +105,16 @@ def fetch_all_market_data():
             if len(hist) >= 2:
                 last_p = float(hist["Close"].iloc[-1])
                 prev_p = float(hist["Close"].iloc[-2])
+                try:
+                    fast_m = t.info
+                    curr_m = fast_m.get("regularMarketPrice") or fast_m.get("currentPrice")
+                    prev_m = fast_m.get("regularMarketPreviousClose")
+                    if curr_m and float(curr_m) > 0:
+                        last_p = float(curr_m)
+                    if prev_m and float(prev_m) > 0:
+                        prev_p = float(prev_m)
+                except Exception:
+                    pass
                 chg_1d = ((last_p / prev_p) - 1) * 100
                 chg_20d = ((last_p / float(hist["Close"].iloc[-21])) - 1) * 100 if len(hist) >= 21 else chg_1d
                 macro_info[name] = {"price": round(last_p, 2), "chg_pct": round(chg_1d, 2), "chg_20d": round(chg_20d, 1)}
@@ -116,9 +129,9 @@ def fetch_all_market_data():
                     title = item.get("title") or item.get("content", {}).get("title", "")
                     if is_clean_headline(title) and title not in seen_titles:
                         seen_titles.add(title)
-                        if name in ["SPY", "US10Y", "VIX"] and len(macro_news) < 3:
+                        if name in ["SPY", "US10Y", "VIX", "ES_FUT"] and len(macro_news) < 3:
                             macro_news.append(f"- MAKRO ({name}): {title[:115]}")
-                        elif name in ["SMH", "QQQ"] and len(sector_news) < 3:
+                        elif name in ["SMH", "QQQ", "NQ_FUT"] and len(sector_news) < 3:
                             sector_news.append(f"- SEKTORI ({name}): {title[:115]}")
         except Exception:
             macro_info[name] = {"price": 0.0, "chg_pct": 0.0, "chg_20d": 0.0}
@@ -193,7 +206,7 @@ def fetch_all_market_data():
                 day_low = min(day_low, live_price)
                 day_high = max(day_high, live_price)
 
-                # 1. ZERO-ILLUSION ARVOSTUSSUODATIN (v3.1 First Principles Guard)
+                # 1. ZERO-ILLUSION ARVOSTUSSUODATIN (v3.2 First Principles Guard)
                 t_pe = fast.get("trailingPE")
                 f_pe = fast.get("forwardPE")
                 ev_ebitda = fast.get("enterpriseToEbitda")
@@ -388,6 +401,8 @@ def format_md_table(sub_df):
 def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, company_news):
     vix = macro_info.get("VIX", {})
     us10y = macro_info.get("US10Y", {})
+    nq_f = macro_info.get("NQ_FUT", {})
+    es_f = macro_info.get("ES_FUT", {})
     qqq = macro_info.get("QQQ", {})
     smh = macro_info.get("SMH", {})
     spy = macro_info.get("SPY", {})
@@ -396,11 +411,12 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
     active_df = df[df["Signaali"] != "OK"]
     inactive_df = df[df["Signaali"] == "OK"]
 
-    md = f"# ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (v3.1 GOLD MASTER)\n"
+    md = f"# ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (v3.2 GOLD MASTER)\n"
     md += f"AIKALEIMA: {now_str} (LIVE_USER_FEED: 0-3min)\n"
     md += (
-        f"MAKRO & SEKTORIT: VIX: {vix.get('price')} ({vix.get('chg_pct')}%) | "
+        f"MAKRO, 24H-FUTUURIT & SEKTORIT: VIX: {vix.get('price')} ({vix.get('chg_pct')}%) | "
         f"US10Y: {us10y.get('price')}% ({us10y.get('chg_pct')}%) | "
+        f"NQ-Fut(24h): {nq_f.get('chg_pct')}% | ES-Fut(24h): {es_f.get('chg_pct')}% | "
         f"SMH: 1d {smh.get('chg_pct')}% / 20d {smh.get('chg_20d')}% | "
         f"QQQ: 1d {qqq.get('chg_pct')}% / 20d {qqq.get('chg_20d')}% | "
         f"SPY: 1d {spy.get('chg_pct')}% | EUR/USD: {fx.get('price')}\n"
@@ -447,7 +463,7 @@ def push_to_google_drive_webhook(markdown_text, webhook_url):
 # ==========================================
 # KÄYTTÖLIITTYMÄ (UI)
 # ==========================================
-st.title("📡 ST0 Market Scout v3.1 (Gold Master PWA)")
+st.title("📡 ST0 Market Scout v3.2 (24h Futures & Gold Master PWA)")
 
 if st.button("🔄 Päivitä Live-Kurssit & Lähetä Driveen", type="primary", use_container_width=True):
     st.cache_data.clear()
