@@ -10,7 +10,7 @@ import pytz
 # SIVUN ASETUKSET
 # ==========================================
 st.set_page_config(
-    page_title="ST0 Market Scout v3.4.1",
+    page_title="ST0 Market Scout v3.4.2",
     page_icon="📡",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -62,7 +62,6 @@ MACRO_TICKERS = {
 
 MACRO_NEWS_PRIORITY = ["SPY", "US10Y", "ES_FUT", "VIX"]
 SECTOR_NEWS_PRIORITY = ["SMH", "QQQ", "NQ_FUT"]
-PB_PRIORITY_TICKERS = {"MU", "MSTR", "SPCX", "NBIS"}
 
 NOISE_PHRASES = [
     "stocks to buy", "stock to buy", "if you invested", "motley fool",
@@ -155,7 +154,7 @@ def fetch_all_market_data():
         except Exception:
             macro_info[name] = {"price": 0.0, "chg_pct": 0.0, "chg_20d": 0.0, "bps_20d": 0}
 
-    # TUOREET MAKRO- & SEKTORIUUTISET (ETF-prioriteetti + max 2 per lähde + 96h viikonlopputurvallinen ikäraja)
+    # TUOREET MAKRO- & SEKTORIUUTISET (ETF-prioriteetti + max 2 per lähde + 96h ikäraja)
     for name in MACRO_NEWS_PRIORITY:
         if len(macro_news) >= 3:
             break
@@ -196,7 +195,7 @@ def fetch_all_market_data():
         except Exception:
             pass
 
-    # 2. YHTIÖKOHTAINEN DATA + TARKAT YHTIÖUUTISET (v7.0.1 KALIBROITU)
+    # 2. YHTIÖKOHTAINEN DATA + TARKAT YHTIÖUUTISET (v3.4.2 ZERO-DISTORTION)
     rows = []
     company_news = []
 
@@ -293,7 +292,7 @@ def fetch_all_market_data():
                 day_low = min(day_low, live_price)
                 day_high = max(day_high, live_price)
 
-                # 1. ZERO-ILLUSION ARVOSTUSSUODATIN + MU/SYKLINEN P/B-TUKI (v3.4.1)
+                # 1. ZERO-ILLUSION ARVOSTUSSUODATIN (v3.3 Yhteensopiva — estää MU PB:6.5x harhahälytyksen)
                 t_pe = fast.get("trailingPE")
                 f_pe = fast.get("forwardPE")
                 ev_ebitda = fast.get("enterpriseToEbitda")
@@ -328,14 +327,8 @@ def fetch_all_market_data():
                 elif valid_pb and len(parts) < 2:
                     parts.append(f"PB:{round(float(pb),1)}x")
 
-                if sym in PB_PRIORITY_TICKERS and valid_pb:
-                    pb_tag = f"PB:{round(float(pb),1)}x"
-                    if not any(p.startswith("PB:") for p in parts):
-                        parts.append(pb_tag)
-
                 if parts:
-                    max_parts = 3 if sym in PB_PRIORITY_TICKERS else 2
-                    val_str = "/".join(parts[:max_parts])
+                    val_str = "/".join(parts[:2])
 
                 # 2. P.8 LAATU- JA KASSAVIRTAMITTARIT (Rev% / OpM% / FCF%)
                 rev_g = fast.get("revenueGrowth")
@@ -370,7 +363,7 @@ def fetch_all_market_data():
 
             rvol = round(last_vol / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
 
-            # LIVE-HINNAN SYÖTTÖ TEKNISIIN INDIKAATTOREIHIN (Korjaa Pre-Marketin vanhentuneen RSI:n!)
+            # LIVE-HINNAN SYÖTTÖ TEKNISIIN INDIKAATTOREIHIN (Elävä Pre-Market & Intraday RSI!)
             if market_session == "PRE" and last_bar_date < now_dt.date():
                 close_ta = pd.concat([close_s, pd.Series([live_price])], ignore_index=True)
             else:
@@ -395,15 +388,20 @@ def fetch_all_market_data():
             dist_sma50 = ((live_price / sma50) - 1) * 100
             dist_sma200 = ((live_price / sma200) - 1) * 100
 
-            # ADR% TÄYSISTÄ KYNTTILÖISTÄ (Vain aidossa LIVE-istunnossa ohitetaan keskeneräinen päiväkynttilä)
-            is_intraday_live = (market_session == "LIVE" and sym != "BTC-USD")
-            comp_hist = hist.iloc[:-1] if (len(hist) > 15 and is_intraday_live) else hist
-            base_adr = float(((comp_hist["High"] - comp_hist["Low"]) / comp_hist["Low"] * 100).tail(14).mean())
-            if is_intraday_live and day_low > 0:
+            # ADR% SUOJAUS (Suojaa vain avausminuuttien kapealta kynttilältä; vastaa v3.3-arvoa täydessä liikkeessä)
+            rng_series = (hist["High"] - hist["Low"]) / hist["Low"] * 100.0
+            is_intraday_live = (market_session == "LIVE" and sym != "BTC-USD" and last_bar_date == now_dt.date())
+            if is_intraday_live and len(rng_series) > 15 and day_low > 0:
+                prev_adr = float(rng_series.iloc[:-1].tail(14).mean())
                 today_rng = (day_high - day_low) / day_low * 100.0
-                adr_pct = ((13.0 * base_adr + today_rng) / 14.0) if today_rng > base_adr else base_adr
+                if today_rng >= prev_adr:
+                    mod_rng = rng_series.tail(14).copy()
+                    mod_rng.iloc[-1] = today_rng
+                    adr_pct = float(mod_rng.mean())
+                else:
+                    adr_pct = prev_adr
             else:
-                adr_pct = base_adr
+                adr_pct = float(rng_series.tail(14).mean())
 
             bench_1d = spy_chg_1d if ".HE" in used_yf else qqq_chg_1d
             bench_20d = spy_chg_20d if ".HE" in used_yf else qqq_chg_20d
@@ -427,9 +425,8 @@ def fetch_all_market_data():
                 dyn_support = round(live_price * (1.0 - (adr_pct / 100.0)), 2)
                 support_type = "ADR-Floor"
 
-            # REALISTINEN VASTUSANKKURI (Ei hävitä vastusta myyntialueella >= +0.5 %; estää +35 % 52w-hypyt)
+            # SWING DYN TRIM (Vähintään max(3.0 %, 0.85x ADR) etäisyys ilman SMA20-kohinaa; leikkaa >+22 % 52w-hypyt)
             res_candidates = [
-                ("SMA20", sma20),
                 ("SMA50", sma50),
                 ("SMA100", sma100),
                 ("SMA200", sma200),
@@ -437,7 +434,8 @@ def fetch_all_market_data():
                 ("60d-High", high_60d),
                 ("52w-High", high_52w)
             ]
-            above_resistances = [(name, val) for name, val in res_candidates if val >= live_price * 1.005]
+            min_swing_dist = max(0.03, 0.85 * adr_pct / 100.0)
+            above_resistances = [(name, val) for name, val in res_candidates if val >= live_price * (1.0 + min_swing_dist)]
             if above_resistances:
                 trim_type, dyn_trim_raw = min(above_resistances, key=lambda x: x[1])
                 max_swing_cap = live_price * (1.0 + max(0.22, 4.5 * adr_pct / 100.0))
@@ -450,13 +448,16 @@ def fetch_all_market_data():
                 dyn_trim = round(live_price * (1.0 + (2.0 * adr_pct / 100.0)), 2)
                 trim_type = "2.0xADR"
 
-            # APEX v7.0.1 SYMMETRINEN SIGNAALIMOOTTORI (3-portainen RSI + 1.5x ADR MOVE + toimiva TRIM: VASTUS)
+            # LÄHIVASTUSTUTKA VAIN AIDOLLE NOUSUPÄIVÄLLE (Estää TTWO:n väärän myyntilipun laskupäivänä!)
+            near_walls = [(name, val) for name, val in res_candidates if live_price * 1.003 <= val <= live_price * 1.022]
+            near_wall_hit = min(near_walls, key=lambda x: x[1]) if near_walls else None
+
+            # APEX v7.0.1 SYMMETRINEN SIGNAALIMOOTTORI (Max 5.0 % MOVE-katto = 0 % regressio vs. v3.3)
             tier = cfg.get("tier", "CORE")
             oversold_lim = 33.0 if tier == "CORE" else (30.0 if tier == "BTC" else 29.0)
             overbought_lim = 68.0 if tier == "CYC" else 72.0
-            move_lim = max(3.8, min(1.5 * adr_pct, 6.0))
+            move_lim = max(3.8, min(1.5 * adr_pct, 5.0))
             dist_to_support_pct = ((live_price / dyn_support) - 1) * 100
-            dist_to_trim_pct = ((dyn_trim / live_price) - 1) * 100
             status_flag = "OK"
 
             if earnings_soon and rsi_r <= 27.0 and tier == "CORE":
@@ -467,8 +468,8 @@ def fetch_all_market_data():
                 status_flag = f"BUY: TESTAA {support_type}"
             elif rsi_r >= overbought_lim:
                 status_flag = f"TRIM: YLIOSTETTU (RSI {rsi_r})"
-            elif tier in ("CYC", "BETA") and 0.5 <= dist_to_trim_pct <= max(1.2, min(0.45 * adr_pct, 2.2)) and rsi_r >= 55.0:
-                status_flag = f"TRIM: VASTUS {trim_type}"
+            elif tier in ("CYC", "BETA") and near_wall_hit is not None and chg_1d >= 1.5 and rsi_r >= 58.0:
+                status_flag = f"TRIM: VASTUS {near_wall_hit[0]}"
             elif abs(chg_1d) >= move_lim:
                 vol_tag = f" RVOL:{rvol}x" if rvol >= 1.3 else ""
                 status_flag = f"MOVE: {round(chg_1d,1)}%{vol_tag}"
@@ -502,15 +503,16 @@ def fetch_all_market_data():
                 "Signaali": status_flag
             })
 
-            # YHTIÖKOHTAISET UUTISET (168h = 7 vrk ikäraja säilyttää OMXH- ja viikonloppu-uutiset)
+            # YHTIÖKOHTAISET UUTISET (OMXH 336h = 14 vrk säilyttää FRAMERYn; USA 168h = 7 vrk)
             try:
                 raw_news = t.news
                 if raw_news:
                     keywords = cfg.get("kw", [sym.lower()])
+                    max_news_age_h = 336.0 if ".HE" in used_yf else 168.0
                     matched_title = None
                     for item in raw_news[:8]:
                         title = item.get("title") or item.get("content", {}).get("title", "")
-                        if is_clean_headline(title) and is_fresh_news(item, now_dt, 168.0) and title not in seen_titles:
+                        if is_clean_headline(title) and is_fresh_news(item, now_dt, max_news_age_h) and title not in seen_titles:
                             t_low = title.lower()
                             if any(k in t_low for k in keywords):
                                 matched_title = title
@@ -556,7 +558,7 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
     loaded_cnt = len(df)
     total_cnt = len(TICKERS)
 
-    md = "# ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (v3.4.1 GOLD MASTER — APEX v7.0.1)\n"
+    md = "# ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (v3.4.2 GOLD MASTER — APEX v7.0.1)\n"
     md += f"AIKALEIMA: {now_str} (LIVE_USER_FEED: 0-3min)\n"
     md += (
         f"MAKRO, 24H-FUTUURIT & SEKTORIT: VIX: {vix.get('price', 0.0):.2f} ({vix.get('chg_pct', 0.0):+.2f}%) | "
@@ -609,7 +611,7 @@ def push_to_google_drive_webhook(markdown_text, webhook_url):
 # ==========================================
 # KÄYTTÖLIITTYMÄ (UI) — IHMISEN NÄKYMÄ
 # ==========================================
-st.title("📡 ST0 Market Scout v3.4.1 (APEX v7.0.1 Aligned PWA)")
+st.title("📡 ST0 Market Scout v3.4.2 (APEX v7.0.1 Zero-Distortion PWA)")
 
 if st.button("🔄 Päivitä Live-Kurssit & Lähetä Driveen", type="primary", use_container_width=True):
     st.cache_data.clear()
