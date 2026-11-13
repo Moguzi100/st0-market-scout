@@ -72,7 +72,8 @@ BS_HUMAN_LABELS = {
 NOISE_PHRASES = [
     "stocks to buy", "stock to buy", "if you invested", "motley fool",
     "why this stock", "millionaire-maker", "retirees", "dividend stocks",
-    "these 3 stocks", "3 stocks", "2 stocks", "top stocks", "stocks to watch"
+    "these 3 stocks", "3 stocks", "2 stocks", "top stocks", "stocks to watch",
+    "years ago", "what is it worth", "invested in each", "biggest winner"
 ]
 
 # ==========================================
