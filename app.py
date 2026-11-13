@@ -384,7 +384,7 @@ def fetch_all_market_data():
                         f_pe_valid = False
                     elif not high_growth_quality and valid_ev and f_val < float(ev_ebitda) * 0.85 and f_val < 18.0:
                         f_pe_valid = False
-                    elif high_growth_quality and f_val < 9.0:
+                    elif high_growth_quality and f_val < 14.0:
                         f_pe_valid = False
                     else:
                         f_pe_valid = True
