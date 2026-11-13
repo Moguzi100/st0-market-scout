@@ -10,47 +10,47 @@ import pytz
 # SIVUN ASETUKSET
 # ==========================================
 st.set_page_config(
-    page_title="ST0 Market Scout v3.4.2",
+    page_title="ST0 Market Scout v3.5",
     page_icon="📡",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
 # ==========================================
-# TARKAT YHTIÖKOHTAISET UUTISANKKURIT & TIER-PROFIILIT (21 KOHDETTA — APEX v7.0.1)
+# YHTIÖANKKURIT, TASELUOKAT (FORT/SELF/DEBT) & TIER-PROFIILIT (21 KOHDETTA — APEX v7.0.2)
 # ==========================================
 TICKERS = {
     # KORI 1: Core Compounders
-    "GOOG":    {"yf": ["GOOG"],          "bucket": "K1:Core",  "tier": "CORE", "dna_ma": 200, "kw": ["alphabet", "google", "waymo", "gemini", "tpu", "youtube", "sundar", "doj"]},
-    "AMZN":    {"yf": ["AMZN"],          "bucket": "K1:Core",  "tier": "CORE", "dna_ma": 100, "kw": ["amazon", "aws", "amzn", "jassy", "prime", "trainium", "anthropic"]},
-    "TTWO":    {"yf": ["TTWO"],          "bucket": "K1:Core",  "tier": "CYC",  "dna_ma": 200, "kw": ["take-two", "gta", "rockstar", "ttwo", "zynga", "2k"]},
-    "AAPL":    {"yf": ["AAPL"],          "bucket": "K1:Core",  "tier": "CORE", "dna_ma": 200, "kw": ["apple", "iphone", "ipad", "mac", "tim cook", "aapl", "foxconn"]},
-    "META":    {"yf": ["META"],          "bucket": "K1:Core",  "tier": "CORE", "dna_ma": 100, "kw": ["meta", "zuckerberg", "instagram", "whatsapp", "llama", "threads"]},
+    "GOOG":    {"yf": ["GOOG"],          "bucket": "K1:Core",  "tier": "CORE", "bs": "FORT", "dna_ma": 200, "kw": ["alphabet", "google", "waymo", "gemini", "tpu", "youtube", "sundar", "doj"]},
+    "AMZN":    {"yf": ["AMZN"],          "bucket": "K1:Core",  "tier": "CORE", "bs": "SELF", "dna_ma": 100, "kw": ["amazon", "aws", "amzn", "jassy", "prime", "trainium", "anthropic"]},
+    "TTWO":    {"yf": ["TTWO"],          "bucket": "K1:Core",  "tier": "CYC",  "bs": "SELF", "dna_ma": 200, "kw": ["take-two", "gta", "rockstar", "ttwo", "zynga", "2k"]},
+    "AAPL":    {"yf": ["AAPL"],          "bucket": "K1:Core",  "tier": "CORE", "bs": "FORT", "dna_ma": 200, "kw": ["apple", "iphone", "ipad", "mac", "tim cook", "aapl", "foxconn"]},
+    "META":    {"yf": ["META"],          "bucket": "K1:Core",  "tier": "CORE", "bs": "FORT", "dna_ma": 100, "kw": ["meta", "zuckerberg", "instagram", "whatsapp", "llama", "threads"]},
     # KORI 2: AI & Semi Stack
-    "AVGO":    {"yf": ["AVGO"],          "bucket": "K2:Semi",  "tier": "CORE", "dna_ma": 50,  "kw": ["broadcom", "avgo", "vmware", "hock tan", "custom chip", "xpu", "tomahawk"]},
-    "NVDA":    {"yf": ["NVDA"],          "bucket": "K2:Semi",  "tier": "CORE", "dna_ma": 50,  "kw": ["nvidia", "nvda", "blackwell", "rubin", "jensen", "kress", "colette", "geforce", "cuda"]},
-    "AMD":     {"yf": ["AMD"],           "bucket": "K2:Semi",  "tier": "BETA", "dna_ma": 200, "kw": ["amd", "advanced micro", "lisa su", "instinct", "epyc", "ryzen"]},
-    "MU":      {"yf": ["MU"],            "bucket": "K2:Semi",  "tier": "CYC",  "dna_ma": 100, "kw": ["micron", "hbm", "dram", "nand", "sanjay", "memory"]},
-    "TSM":     {"yf": ["TSM"],           "bucket": "K2:Semi",  "tier": "CORE", "dna_ma": 50,  "kw": ["tsmc", "taiwan semi", "cowos", "foundry", "wafer"]},
-    "ASML":    {"yf": ["ASML"],          "bucket": "K2:Semi",  "tier": "CORE", "dna_ma": 200, "kw": ["asml", "euv", "lithography", "fouquet", "bookings", "soxx"]},
+    "AVGO":    {"yf": ["AVGO"],          "bucket": "K2:Semi",  "tier": "CORE", "bs": "FORT", "dna_ma": 50,  "kw": ["broadcom", "avgo", "vmware", "hock tan", "custom chip", "xpu", "tomahawk"]},
+    "NVDA":    {"yf": ["NVDA"],          "bucket": "K2:Semi",  "tier": "CORE", "bs": "FORT", "dna_ma": 50,  "kw": ["nvidia", "nvda", "blackwell", "rubin", "jensen", "kress", "colette", "geforce", "cuda"]},
+    "AMD":     {"yf": ["AMD"],           "bucket": "K2:Semi",  "tier": "BETA", "bs": "SELF", "dna_ma": 200, "kw": ["amd", "advanced micro", "lisa su", "instinct", "epyc", "ryzen"]},
+    "MU":      {"yf": ["MU"],            "bucket": "K2:Semi",  "tier": "CYC",  "bs": "FORT", "dna_ma": 100, "kw": ["micron", "hbm", "dram", "nand", "sanjay", "memory"]},
+    "TSM":     {"yf": ["TSM"],           "bucket": "K2:Semi",  "tier": "CORE", "bs": "FORT", "dna_ma": 50,  "kw": ["tsmc", "taiwan semi", "cowos", "foundry", "wafer"]},
+    "ASML":    {"yf": ["ASML"],          "bucket": "K2:Semi",  "tier": "CORE", "bs": "FORT", "dna_ma": 200, "kw": ["asml", "euv", "lithography", "fouquet", "bookings", "soxx"]},
     # KORI 3: High-Beta & Frontier
-    "SPCX":    {"yf": ["SPCX", "DXYZ"],  "bucket": "K3:Beta",  "tier": "CYC",  "dna_ma": 50,  "kw": ["spacex", "starlink", "starship", "falcon", "spcx", "dxyz"]},
-    "MSTR":    {"yf": ["MSTR"],          "bucket": "K3:Beta",  "tier": "CYC",  "dna_ma": 50,  "kw": ["microstrategy", "strategy", "saylor", "mstr", "msci"]},
+    "SPCX":    {"yf": ["SPCX", "DXYZ"],  "bucket": "K3:Beta",  "tier": "CYC",  "bs": "DEBT", "dna_ma": 50,  "kw": ["spacex", "starlink", "starship", "falcon", "spcx", "dxyz"]},
+    "MSTR":    {"yf": ["MSTR"],          "bucket": "K3:Beta",  "tier": "CYC",  "bs": "DEBT", "dna_ma": 50,  "kw": ["microstrategy", "strategy", "saylor", "mstr", "msci"]},
     # KORI 4: Suomi / EUR
-    "WRT1V":   {"yf": ["WRT1V.HE"],      "bucket": "K4:Suomi", "tier": "CORE", "dna_ma": 100, "kw": ["wärtsilä", "wartsila", "agnevall", "marine", "energy storage", "engine"]},
-    "FRAMERY": {"yf": ["FRAMERY.HE"],    "bucket": "K4:Suomi", "tier": "CYC",  "dna_ma": 50,  "kw": ["framery", "hlt", "office pod"]},
-    # SEURANTALISTA (Watchlist: ANET, KLAC, NBIS, NOKIA, BTC-USD, TSLA)
-    "ANET":    {"yf": ["ANET"],          "bucket": "WATCH",    "tier": "CORE", "dna_ma": 50,  "kw": ["arista", "anet", "ethernet", "switch", "ullal", "networking"]},
-    "KLAC":    {"yf": ["KLAC"],          "bucket": "WATCH",    "tier": "CORE", "dna_ma": 100, "kw": ["kla", "klac", "metrology", "inspection", "wafer", "wallace"]},
-    "NBIS":    {"yf": ["NBIS"],          "bucket": "WATCH",    "tier": "CYC",  "dna_ma": 50,  "kw": ["nebius", "nbis", "arkady", "toloka", "avride"]},
-    "NOKIA":   {"yf": ["NOKIA.HE"],      "bucket": "WATCH",    "tier": "CYC",  "dna_ma": 200, "kw": ["nokia", "lundmark", "hotard", "infinera", "5g", "telecom"]},
-    "BTC-USD": {"yf": ["BTC-USD"],       "bucket": "WATCH",    "tier": "BTC",  "dna_ma": 50,  "kw": ["bitcoin", "btc", "crypto", "ibit", "etf"]},
-    "TSLA":    {"yf": ["TSLA"],          "bucket": "WATCH",    "tier": "BETA", "dna_ma": 200, "kw": ["tesla", "tsla", "musk", "cybercab", "robotaxi", "megapack", "fsd"]},
+    "WRT1V":   {"yf": ["WRT1V.HE"],      "bucket": "K4:Suomi", "tier": "CORE", "bs": "FORT", "dna_ma": 100, "kw": ["wärtsilä", "wartsila", "agnevall", "marine", "energy storage", "engine"]},
+    "FRAMERY": {"yf": ["FRAMERY.HE"],    "bucket": "K4:Suomi", "tier": "CYC",  "bs": "SELF", "dna_ma": 50,  "kw": ["framery", "hlt", "office pod"]},
+    # SEURANTALISTA (Watchlist)
+    "ANET":    {"yf": ["ANET"],          "bucket": "WATCH",    "tier": "CORE", "bs": "FORT", "dna_ma": 50,  "kw": ["arista", "anet", "ethernet", "switch", "ullal", "networking"]},
+    "KLAC":    {"yf": ["KLAC"],          "bucket": "WATCH",    "tier": "CORE", "bs": "FORT", "dna_ma": 100, "kw": ["kla", "klac", "metrology", "inspection", "wafer", "wallace"]},
+    "NBIS":    {"yf": ["NBIS"],          "bucket": "WATCH",    "tier": "CYC",  "bs": "DEBT", "dna_ma": 50,  "kw": ["nebius", "nbis", "arkady", "toloka", "avride"]},
+    "NOKIA":   {"yf": ["NOKIA.HE"],      "bucket": "WATCH",    "tier": "CYC",  "bs": "SELF", "dna_ma": 200, "kw": ["nokia", "lundmark", "hotard", "infinera", "5g", "telecom"]},
+    "BTC-USD": {"yf": ["BTC-USD"],       "bucket": "WATCH",    "tier": "BTC",  "bs": "DEBT", "dna_ma": 50,  "kw": ["bitcoin", "btc", "crypto", "ibit", "etf"]},
+    "TSLA":    {"yf": ["TSLA"],          "bucket": "WATCH",    "tier": "BETA", "bs": "SELF", "dna_ma": 200, "kw": ["tesla", "tsla", "musk", "cybercab", "robotaxi", "megapack", "fsd"]},
 }
 
-# Sisältää 24h-indeksifutuurit (NQ=F ja ES=F), jotka liikkuvat läpi yön klo 01:00–24:00 EET
 MACRO_TICKERS = {
     "VIX": "^VIX",
+    "VXN": "^VXN",
     "US10Y": "^TNX",
     "NQ_FUT": "NQ=F",
     "ES_FUT": "ES=F",
@@ -63,6 +63,12 @@ MACRO_TICKERS = {
 MACRO_NEWS_PRIORITY = ["SPY", "US10Y", "ES_FUT", "VIX"]
 SECTOR_NEWS_PRIORITY = ["SMH", "QQQ", "NQ_FUT"]
 
+BS_HUMAN_LABELS = {
+    "FORT": "🛡️ Linnoitus",
+    "SELF": "⚙️ Tulorahoitus",
+    "DEBT": "⚠️ Korkoherkkä"
+}
+
 NOISE_PHRASES = [
     "stocks to buy", "stock to buy", "if you invested", "motley fool",
     "why this stock", "millionaire-maker", "retirees", "dividend stocks",
@@ -70,7 +76,7 @@ NOISE_PHRASES = [
 ]
 
 # ==========================================
-# WILDERIN VIRALLINEN RSI(14) & UUTISSUODATTIMET
+# LASKENTAFUNKTIOT: WILDER RSI, U-CURVE pRVOL, KORKOMATRIISI & UUTISET
 # ==========================================
 def calc_wilder_rsi(series, period=14):
     delta = series.diff()
@@ -80,6 +86,42 @@ def calc_wilder_rsi(series, period=14):
     avg_loss = loss.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
     return 100.0 - (100.0 / (1.0 + rs))
+
+def calc_pace_rvol(raw_vol, avg_vol_20, market_session, used_yf, sym, now_fi, now_ny, has_today_vol):
+    if avg_vol_20 <= 0:
+        return 1.0
+    if market_session != "LIVE" or sym == "BTC-USD" or not has_today_vol:
+        return round(raw_vol / avg_vol_20, 2)
+
+    if ".HE" in used_yf:
+        open_dt = now_fi.replace(hour=10, minute=0, second=0, microsecond=0)
+        total_min = 510.0
+        elapsed = (now_fi - open_dt).total_seconds() / 60.0
+    else:
+        open_dt = now_ny.replace(hour=9, minute=30, second=0, microsecond=0)
+        total_min = 390.0
+        elapsed = (now_ny - open_dt).total_seconds() / 60.0
+
+    if elapsed <= 0:
+        return round(raw_vol / avg_vol_20, 2)
+    if elapsed >= total_min:
+        return round(raw_vol / avg_vol_20, 2)
+
+    eff_min = max(15.0, elapsed)
+    f = eff_min / total_min
+    # Monotoninen U-käyrä: painottaa avaus- ja päätöstunnin korkeaa instituutiovolyymia
+    expected_share = max(0.06, min(1.0, f + 0.09 * float(np.sin(2.0 * np.pi * f))))
+    return round((raw_vol / avg_vol_20) / expected_share, 2)
+
+def classify_rate_regime(us10y_info):
+    p = float(us10y_info.get("price", 0.0))
+    bps_1d = int(us10y_info.get("bps_1d", 0))
+    bps_20d = int(us10y_info.get("bps_20d", 0))
+    if p >= 5.35 or bps_20d >= 20 or bps_1d >= 8:
+        return "RATE_SHOCK"
+    if p >= 5.15:
+        return "RATE_ELEVATED"
+    return "RATE_CALM"
 
 def is_clean_headline(title):
     if not title or len(title) < 15:
@@ -105,7 +147,9 @@ def is_fresh_news(item, now_dt, max_hours=96.0):
 @st.cache_data(ttl=120)
 def fetch_all_market_data():
     tz_fi = pytz.timezone("Europe/Helsinki")
+    tz_ny = pytz.timezone("America/New_York")
     now_dt = datetime.now(tz_fi)
+    now_ny = now_dt.astimezone(tz_ny)
     now_str = now_dt.strftime("%d.%m.%Y klo %H:%M:%S EET")
     is_us_pre_window_fi = (now_dt.weekday() < 5 and 10 <= now_dt.hour < 17)
 
@@ -113,11 +157,12 @@ def fetch_all_market_data():
     macro_objs = {}
     qqq_chg_1d, qqq_chg_20d = 0.0, 0.0
     spy_chg_1d, spy_chg_20d = 0.0, 0.0
+    smh_chg_1d = 0.0
     seen_titles = set()
     macro_news = []
     sector_news = []
 
-    # 1. MAKRODATA + 24H FUTUURIT + US10Y 20D BPS
+    # 1. MAKRODATA + VXN + US10Y (1D & 20D BPS) + SEMI-SPREAD
     for name, yf_sym in MACRO_TICKERS.items():
         try:
             t = yf.Ticker(yf_sym)
@@ -139,22 +184,32 @@ def fetch_all_market_data():
                 chg_1d = ((last_p / prev_p) - 1) * 100
                 p_20d = float(hist["Close"].iloc[-21]) if len(hist) >= 21 else prev_p
                 chg_20d = ((last_p / p_20d) - 1) * 100
+                bps_1d = int(round((last_p - prev_p) * 100)) if name == "US10Y" else 0
                 bps_20d = int(round((last_p - p_20d) * 100)) if name == "US10Y" else 0
                 decimals = 3 if name == "EURUSD" else 2
                 macro_info[name] = {
                     "price": round(last_p, decimals),
                     "chg_pct": round(chg_1d, 2),
                     "chg_20d": round(chg_20d, 1),
+                    "bps_1d": bps_1d,
                     "bps_20d": bps_20d
                 }
                 if name == "QQQ":
                     qqq_chg_1d, qqq_chg_20d = chg_1d, chg_20d
                 elif name == "SPY":
                     spy_chg_1d, spy_chg_20d = chg_1d, chg_20d
+                elif name == "SMH":
+                    smh_chg_1d = chg_1d
+            else:
+                macro_info[name] = {"price": 0.0, "chg_pct": 0.0, "chg_20d": 0.0, "bps_1d": 0, "bps_20d": 0}
         except Exception:
-            macro_info[name] = {"price": 0.0, "chg_pct": 0.0, "chg_20d": 0.0, "bps_20d": 0}
+            macro_info[name] = {"price": 0.0, "chg_pct": 0.0, "chg_20d": 0.0, "bps_1d": 0, "bps_20d": 0}
 
-    # TUOREET MAKRO- & SEKTORIUUTISET (ETF-prioriteetti + max 2 per lähde + 96h ikäraja)
+    rate_regime = classify_rate_regime(macro_info.get("US10Y", {}))
+    semi_spread = round(smh_chg_1d - spy_chg_1d, 2)
+    macro_info["META_REGIME"] = {"rate_regime": rate_regime, "semi_spread": semi_spread}
+
+    # TUOREET MAKRO- & SEKTORIUUTISET (96h ikäraja)
     for name in MACRO_NEWS_PRIORITY:
         if len(macro_news) >= 3:
             break
@@ -195,7 +250,7 @@ def fetch_all_market_data():
         except Exception:
             pass
 
-    # 2. YHTIÖKOHTAINEN DATA + TARKAT YHTIÖUUTISET (v3.4.2 ZERO-DISTORTION)
+    # 2. YHTIÖDATA + TASELUOKITUS + KORJATTU F:P/E + U-CURVE pRVOL
     rows = []
     company_news = []
 
@@ -226,16 +281,23 @@ def fetch_all_market_data():
             high_60d = float(hist["High"].tail(60).max())
             low_60d = float(hist["Low"].tail(60).min())
             last_bar_date = hist.index[-1].date()
+            exch_today = now_dt.date() if ".HE" in used_yf else now_ny.date()
 
             avg_vol_20 = float(vol_s.tail(21).iloc[:-1].mean()) if len(vol_s) >= 21 else float(vol_s.mean())
             last_vol = float(vol_s.iloc[-1])
+            has_today_vol = (last_bar_date == exch_today)
 
             live_price = last_close
             market_session = "LIVE" if sym == "BTC-USD" else "CLS"
+            bs_tier = cfg.get("bs", "SELF")
             val_str = "-"
-            quality_str = "-/-/-"
+            quality_human_str = "- / - / -"
+            quality_ai_str = f"-/-/-/{bs_tier}"
+            bs_human_str = BS_HUMAN_LABELS.get(bs_tier, bs_tier)
             next_q_str = "-"
             earnings_soon = False
+            op_m_val = None
+            fcf_yield_val = None
 
             try:
                 fast = t.info
@@ -253,7 +315,6 @@ def fetch_all_market_data():
                 if info_high and float(info_high) > 0:
                     day_high = float(info_high)
 
-                # TARKKA SESSIOTUNNISTUS (LIVE vs PRE/PREPRE vs AH vs CLS)
                 is_pre_session = (
                     ".HE" not in used_yf
                     and pre_p and float(pre_p) > 0
@@ -270,8 +331,9 @@ def fetch_all_market_data():
                         live_price = float(curr_p)
                         prev_close = float(reg_prev)
                     market_session = "LIVE"
-                    if info_vol and float(info_vol) > last_vol and last_bar_date == now_dt.date():
-                        last_vol = float(info_vol)
+                    if info_vol and float(info_vol) > 0:
+                        last_vol = max(last_vol, float(info_vol)) if has_today_vol else float(info_vol)
+                        has_today_vol = True
                 elif is_pre_session:
                     live_price = float(pre_p)
                     prev_close = float(curr_p or last_close)
@@ -292,27 +354,37 @@ def fetch_all_market_data():
                 day_low = min(day_low, live_price)
                 day_high = max(day_high, live_price)
 
-                # 1. ZERO-ILLUSION ARVOSTUSSUODATIN (v3.3 Yhteensopiva — estää MU PB:6.5x harhahälytyksen)
+                # 1. ZERO-ILLUSION ARVOSTUSSUODATIN v3.5 (Säilyttää AVGO:n aidon F:12-18x kertoimen!)
                 t_pe = fast.get("trailingPE")
                 f_pe = fast.get("forwardPE")
                 ev_ebitda = fast.get("enterpriseToEbitda")
                 pb = fast.get("priceToBook")
                 op_m = fast.get("operatingMargins")
+                rev_g = fast.get("revenueGrowth")
                 curr_code = fast.get("currency", "USD")
                 fin_curr = fast.get("financialCurrency", curr_code)
+
+                if op_m is not None and -5.0 < float(op_m) < 1.0:
+                    op_m_val = float(op_m)
 
                 same_currency = (curr_code == fin_curr)
                 valid_ev = (ev_ebitda is not None and 2.0 < float(ev_ebitda) < 150.0 and same_currency)
                 valid_pb = (pb is not None and 0.2 < float(pb) < 35.0 and same_currency)
                 positive_opm = (op_m is None or float(op_m) > 0.01)
+                high_growth_quality = (
+                    op_m is not None and float(op_m) >= 0.20
+                    and rev_g is not None and float(rev_g) >= 0.25
+                )
 
                 parts = []
                 f_pe_valid = False
                 if f_pe and 4.5 < float(f_pe) < 200.0 and positive_opm:
                     f_val = float(f_pe)
-                    if t_pe and float(t_pe) > 0 and f_val < float(t_pe) * 0.50 and f_val < 18.0:
+                    if not high_growth_quality and t_pe and float(t_pe) > 0 and f_val < float(t_pe) * 0.50 and f_val < 18.0:
                         f_pe_valid = False
-                    elif valid_ev and f_val < float(ev_ebitda) * 0.85 and f_val < 18.0:
+                    elif not high_growth_quality and valid_ev and f_val < float(ev_ebitda) * 0.85 and f_val < 18.0:
+                        f_pe_valid = False
+                    elif high_growth_quality and f_val < 9.0:
                         f_pe_valid = False
                     else:
                         f_pe_valid = True
@@ -330,20 +402,33 @@ def fetch_all_market_data():
                 if parts:
                     val_str = "/".join(parts[:2])
 
-                # 2. P.8 LAATU- JA KASSAVIRTAMITTARIT (Rev% / OpM% / FCF%)
-                rev_g = fast.get("revenueGrowth")
+                # 2. LAATU-, KASSAVIRTA- & NETTOKASSAMITTARIT (AI vs. Human eriytetty)
                 fcf = fast.get("freeCashflow")
                 mcap = fast.get("marketCap")
+                t_cash = fast.get("totalCash")
+                t_debt = fast.get("totalDebt")
 
                 rev_s = f"{round(float(rev_g) * 100, 1)}%" if rev_g is not None else "-"
                 opm_s = f"{round(float(op_m) * 100, 1)}%" if (op_m is not None and -2.0 < float(op_m) < 1.0) else "-"
                 fcf_s = "-"
                 if fcf is not None and mcap and float(mcap) > 0 and same_currency:
                     fcf_yield = (float(fcf) / float(mcap)) * 100.0
-                    if -50.0 < fcf_yield < 50.0:
+                    if -60.0 < fcf_yield < 50.0:
+                        fcf_yield_val = fcf_yield
                         fcf_s = f"{round(fcf_yield, 1)}%"
 
-                quality_str = f"{rev_s}/{opm_s}/{fcf_s}"
+                nc_tag_ai = bs_tier
+                nc_tag_human = BS_HUMAN_LABELS.get(bs_tier, bs_tier)
+                if (t_cash is not None or t_debt is not None) and mcap and float(mcap) > 0 and same_currency:
+                    net_c_pct = ((float(t_cash or 0.0) - float(t_debt or 0.0)) / float(mcap)) * 100.0
+                    if -150.0 < net_c_pct < 100.0:
+                        nc_int = int(round(net_c_pct))
+                        nc_tag_ai = f"{bs_tier}({nc_int:+d}%)"
+                        nc_tag_human = f"{BS_HUMAN_LABELS.get(bs_tier, bs_tier)} ({nc_int:+d}%)"
+
+                quality_ai_str = f"{rev_s}/{opm_s}/{fcf_s}/{nc_tag_ai}"
+                quality_human_str = f"{rev_s} / {opm_s} / {fcf_s}"
+                bs_human_str = nc_tag_human
 
                 # 3. TULOSKALENTERI
                 e_ts = fast.get("earningsTimestamp") or fast.get("earningsTimestampStart")
@@ -361,10 +446,12 @@ def fetch_all_market_data():
             except Exception:
                 pass
 
-            rvol = round(last_vol / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
+            prvol = calc_pace_rvol(
+                last_vol, avg_vol_20, market_session, used_yf, sym, now_dt, now_ny, has_today_vol
+            )
 
-            # LIVE-HINNAN SYÖTTÖ TEKNISIIN INDIKAATTOREIHIN (Elävä Pre-Market & Intraday RSI!)
-            if market_session == "PRE" and last_bar_date < now_dt.date():
+            # LIVE/PRE-HINNAN SYÖTTÖ TEKNISIIN INDIKAATTOREIHIN
+            if market_session == "PRE" and last_bar_date < exch_today:
                 close_ta = pd.concat([close_s, pd.Series([live_price])], ignore_index=True)
             else:
                 close_ta = close_s.copy()
@@ -388,9 +475,9 @@ def fetch_all_market_data():
             dist_sma50 = ((live_price / sma50) - 1) * 100
             dist_sma200 = ((live_price / sma200) - 1) * 100
 
-            # ADR% SUOJAUS (Suojaa vain avausminuuttien kapealta kynttilältä; vastaa v3.3-arvoa täydessä liikkeessä)
+            # ADR% SUOJAUS
             rng_series = (hist["High"] - hist["Low"]) / hist["Low"] * 100.0
-            is_intraday_live = (market_session == "LIVE" and sym != "BTC-USD" and last_bar_date == now_dt.date())
+            is_intraday_live = (market_session == "LIVE" and sym != "BTC-USD" and last_bar_date == exch_today)
             if is_intraday_live and len(rng_series) > 15 and day_low > 0:
                 prev_adr = float(rng_series.iloc[:-1].tail(14).mean())
                 today_rng = (day_high - day_low) / day_low * 100.0
@@ -408,7 +495,7 @@ def fetch_all_market_data():
             rs_1d = round(chg_1d - bench_1d, 2)
             rs_20d = round(chg_20d - bench_20d, 1)
 
-            # EHDOTON TUKITASOLUKKO (Dyn Tuki on AINA <= nykyhinta!)
+            # EHDOTON TUKITASOLUKKO (Dyn Tuki <= nykyhinta)
             candidates = [
                 ("SMA50", sma50),
                 ("SMA100", sma100),
@@ -425,7 +512,7 @@ def fetch_all_market_data():
                 dyn_support = round(live_price * (1.0 - (adr_pct / 100.0)), 2)
                 support_type = "ADR-Floor"
 
-            # SWING DYN TRIM (Vähintään max(3.0 %, 0.85x ADR) etäisyys ilman SMA20-kohinaa; leikkaa >+22 % 52w-hypyt)
+            # SWING DYN TRIM
             res_candidates = [
                 ("SMA50", sma50),
                 ("SMA100", sma100),
@@ -448,30 +535,42 @@ def fetch_all_market_data():
                 dyn_trim = round(live_price * (1.0 + (2.0 * adr_pct / 100.0)), 2)
                 trim_type = "2.0xADR"
 
-            # LÄHIVASTUSTUTKA VAIN AIDOLLE NOUSUPÄIVÄLLE (Estää TTWO:n väärän myyntilipun laskupäivänä!)
             near_walls = [(name, val) for name, val in res_candidates if live_price * 1.003 <= val <= live_price * 1.022]
             near_wall_hit = min(near_walls, key=lambda x: x[1]) if near_walls else None
 
-            # APEX v7.0.1 SYMMETRINEN SIGNAALIMOOTTORI (Max 5.0 % MOVE-katto = 0 % regressio vs. v3.3)
+            # APEX v7.0.2 SIGNAALIMOOTTORI (2D Korkomatriisi + Tappiollisten DEBT-yhtiöiden suodatus)
             tier = cfg.get("tier", "CORE")
             oversold_lim = 33.0 if tier == "CORE" else (30.0 if tier == "BTC" else 29.0)
             overbought_lim = 68.0 if tier == "CYC" else 72.0
             move_lim = max(3.8, min(1.5 * adr_pct, 5.0))
             dist_to_support_pct = ((live_price / dyn_support) - 1) * 100
-            status_flag = "OK"
 
+            is_cash_burner_debt = (
+                bs_tier == "DEBT"
+                and sym != "BTC-USD"
+                and ((op_m_val is not None and op_m_val < 0.0) or (fcf_yield_val is not None and fcf_yield_val < -4.0))
+            )
+            buffer_muted = (rate_regime == "RATE_SHOCK") or (rate_regime == "RATE_ELEVATED" and bs_tier == "DEBT")
+            sup_touch_lim = max(0.8, min(0.25 * adr_pct, 1.4)) if buffer_muted else max(1.5, min(0.5 * adr_pct, 2.8))
+
+            status_flag = "OK"
             if earnings_soon and rsi_r <= 27.0 and tier == "CORE":
-                status_flag = f"BUY: Q!-DISLOCATION (RSI {rsi_r})"
+                if dist_to_support_pct <= max(2.2, 0.55 * adr_pct):
+                    status_flag = f"BUY: Q!-DISLOCATION (RSI {rsi_r})"
+                else:
+                    status_flag = f"WATCH: Q!-RSI {rsi_r} (ODOTA TUKEA)"
             elif rsi_r <= oversold_lim:
-                status_flag = f"BUY: YLIMYYTY (RSI {rsi_r})"
-            elif 0.0 <= dist_to_support_pct <= max(1.5, min(0.5 * adr_pct, 2.8)) and rsi_r <= 46.0:
-                status_flag = f"BUY: TESTAA {support_type}"
+                prefix = "WATCH: ALATUKI" if is_cash_burner_debt else "BUY: YLIMYYTY"
+                status_flag = f"{prefix} (RSI {rsi_r})"
+            elif 0.0 <= dist_to_support_pct <= sup_touch_lim and rsi_r <= 46.0:
+                prefix = "WATCH: TESTAA" if is_cash_burner_debt else "BUY: TESTAA"
+                status_flag = f"{prefix} {support_type}"
             elif rsi_r >= overbought_lim:
                 status_flag = f"TRIM: YLIOSTETTU (RSI {rsi_r})"
             elif tier in ("CYC", "BETA") and near_wall_hit is not None and chg_1d >= 1.5 and rsi_r >= 58.0:
                 status_flag = f"TRIM: VASTUS {near_wall_hit[0]}"
             elif abs(chg_1d) >= move_lim:
-                vol_tag = f" RVOL:{rvol}x" if rvol >= 1.3 else ""
+                vol_tag = f" pRVOL:{prvol}x" if prvol >= 1.3 else ""
                 status_flag = f"MOVE: {round(chg_1d,1)}%{vol_tag}"
             elif rs_1d >= 3.0 and chg_1d > 0:
                 status_flag = f"RS-LEAD (+{round(rs_1d,1)}%)"
@@ -480,18 +579,22 @@ def fetch_all_market_data():
                 status_flag = f"WARN: TULOS {next_q_str}" if status_flag == "OK" else f"{status_flag} + {next_q_str}"
 
             day_range_str = f"{round(day_low, 2)}-{round(day_high, 2)}"
+            ticker_disp = sym if used_yf == sym or ".HE" in used_yf else f"{sym}({used_yf})"
 
             rows.append({
-                "Ticker": sym if used_yf == sym or ".HE" in used_yf else f"{sym}({used_yf})",
+                "Ticker": ticker_disp,
                 "Kori": cfg["bucket"],
                 "Hinta": round(live_price, 2),
                 "Sessio": market_session,
                 "Muutos %": round(chg_1d, 2),
                 "Day Low-High": day_range_str,
-                "RVOL": f"{rvol}x",
+                "pRVOL_num": prvol,
+                "pRVOL": f"{prvol}x",
                 "52w %": round(dd_52w_pct, 1),
                 "Arvostus": val_str,
-                "Rev/OpM/FCF": quality_str,
+                "Rev/OpM/FCF/Tase": quality_ai_str,
+                "Kasvu / Marg / FCF": quality_human_str,
+                "Taseprofiili": bs_human_str,
                 "RSI(14)": rsi_r,
                 "SMA50%": round(dist_sma50, 1),
                 "SMA200%": round(dist_sma200, 1),
@@ -503,7 +606,6 @@ def fetch_all_market_data():
                 "Signaali": status_flag
             })
 
-            # YHTIÖKOHTAISET UUTISET (OMXH 336h = 14 vrk säilyttää FRAMERYn; USA 168h = 7 vrk)
             try:
                 raw_news = t.news
                 if raw_news:
@@ -529,22 +631,26 @@ def fetch_all_market_data():
     df = pd.DataFrame(rows)
     return now_str, macro_info, df, macro_news, sector_news, company_news
 
-def format_md_table(sub_df):
+# ==========================================
+# MOOTTORI 1: 100 % AI-OPTIMOITU MARKDOWN GOOGLE DRIVEEN (TIIVIS, NOLLA EMOJIA)
+# ==========================================
+def format_ai_md_table(sub_df):
     if sub_df.empty:
         return "Ei kohteita.\n"
-    header = "| Ticker | Kori | Hinta | Ses | Muutos | Low-High | RVOL | 52w% | Arvostus | Rev/OpM/FCF | RSI | SMA50 | SMA200 | ADR | RS(1d/20d) | Dyn Tuki | Dyn Trim | Q-Tila | Signaali |\n"
+    header = "| Ticker | Kori | Hinta | Ses | Muutos | Low-High | pRVOL | 52w% | Arvostus | Rev/OpM/FCF/Tase | RSI | SMA50 | SMA200 | ADR | RS(1d/20d) | Dyn Tuki | Dyn Trim | Q-Tila | Signaali |\n"
     sep = "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
     body = ""
     for _, r in sub_df.iterrows():
         body += (
-            f"| {r['Ticker']} | {r['Kori']} | {r['Hinta']} | {r['Sessio']} | {r['Muutos %']}% | {r['Day Low-High']} | {r['RVOL']} | "
-            f"{r['52w %']}% | {r['Arvostus']} | {r['Rev/OpM/FCF']} | {r['RSI(14)']} | {r['SMA50%']}% | "
+            f"| {r['Ticker']} | {r['Kori']} | {r['Hinta']} | {r['Sessio']} | {r['Muutos %']}% | {r['Day Low-High']} | {r['pRVOL']} | "
+            f"{r['52w %']}% | {r['Arvostus']} | {r['Rev/OpM/FCF/Tase']} | {r['RSI(14)']} | {r['SMA50%']}% | "
             f"{r['SMA200%']}% | {r['ADR%']}% | {r['RS(1d/20d)']} | {r['Dyn Tuki']} | {r['Dyn Trim']} | {r['Q-Tila']} | {r['Signaali']} |\n"
         )
     return header + sep + body
 
 def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, company_news):
     vix = macro_info.get("VIX", {})
+    vxn = macro_info.get("VXN", {})
     us10y = macro_info.get("US10Y", {})
     nq_f = macro_info.get("NQ_FUT", {})
     es_f = macro_info.get("ES_FUT", {})
@@ -552,17 +658,22 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
     smh = macro_info.get("SMH", {})
     spy = macro_info.get("SPY", {})
     fx = macro_info.get("EURUSD", {})
+    meta_r = macro_info.get("META_REGIME", {})
+    rate_reg = meta_r.get("rate_regime", "RATE_CALM")
+    semi_sp = meta_r.get("semi_spread", 0.0)
 
+    vxn_str = f"{vxn.get('price', 0.0):.2f} ({vxn.get('chg_pct', 0.0):+.2f}%)" if vxn.get("price", 0.0) > 0 else "N/A"
     active_df = df[df["Signaali"] != "OK"] if not df.empty else pd.DataFrame()
     inactive_df = df[df["Signaali"] == "OK"] if not df.empty else pd.DataFrame()
     loaded_cnt = len(df)
     total_cnt = len(TICKERS)
 
-    md = "# ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (v3.4.2 GOLD MASTER — APEX v7.0.1)\n"
+    md = "# ST0_LIVE_MARKET_FEED — AI SCOUT REPORT (v3.5 DUAL-ENGINE — APEX v7.0.2)\n"
     md += f"AIKALEIMA: {now_str} (LIVE_USER_FEED: 0-3min)\n"
     md += (
-        f"MAKRO, 24H-FUTUURIT & SEKTORIT: VIX: {vix.get('price', 0.0):.2f} ({vix.get('chg_pct', 0.0):+.2f}%) | "
-        f"US10Y: {us10y.get('price', 0.0):.2f}% ({us10y.get('chg_pct', 0.0):+.2f}% / 20d {us10y.get('bps_20d', 0):+d}bps) | "
+        f"MAKRO, DISPERSIO & KORKOTILA: VIX: {vix.get('price', 0.0):.2f} ({vix.get('chg_pct', 0.0):+.2f}%) | "
+        f"VXN: {vxn_str} | Semi-Spread(SMH-SPY): {semi_sp:+.2f}pp | "
+        f"US10Y: {us10y.get('price', 0.0):.2f}% (1d {us10y.get('bps_1d', 0):+d}bps / 20d {us10y.get('bps_20d', 0):+d}bps => {rate_reg}) | "
         f"NQ-Fut(24h): {nq_f.get('chg_pct', 0.0):+.2f}% | ES-Fut(24h): {es_f.get('chg_pct', 0.0):+.2f}% | "
         f"SMH: 1d {smh.get('chg_pct', 0.0):+.2f}% / 20d {smh.get('chg_20d', 0.0):+.1f}% | "
         f"QQQ: 1d {qqq.get('chg_pct', 0.0):+.2f}% / 20d {qqq.get('chg_20d', 0.0):+.1f}% | "
@@ -578,10 +689,10 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
 
     md += f"## 2. KOKO SALKKU & SEURANTALISTA ({total_cnt} KOHDETTA)\n"
     md += f"### A. AKTIIVISET SIGNAALIT & POIKKEAMAT ({len(active_df)} kpl)\n"
-    md += format_md_table(active_df)
+    md += format_ai_md_table(active_df)
 
     md += f"### B. EI AKTIIVISIA SIGNAALEJA — NEUTRAALIT ({len(inactive_df)} kpl)\n"
-    md += format_md_table(inactive_df)
+    md += format_ai_md_table(inactive_df)
 
     if company_news:
         md += "## 3. YHTIOKOHTAISET UUTISET (24H)\n"
@@ -590,6 +701,38 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
 
     md += f"[EOF: {loaded_cnt}/{total_cnt} OK]\n"
     return md
+
+# ==========================================
+# MOOTTORI 2: IHMISEN SELKOKIELINEN NÄKYMÄ STREAMLITISSÄ (NUMEERINEN LAJITTELU)
+# ==========================================
+def build_human_display_df(sub_df):
+    if sub_df.empty:
+        return pd.DataFrame()
+    cols = [
+        "Ticker", "Kori", "Hinta", "Muutos %", "Signaali", "Taseprofiili",
+        "RSI(14)", "pRVOL_num", "Dyn Tuki", "Dyn Trim", "Arvostus",
+        "Kasvu / Marg / FCF", "Day Low-High", "ADR%", "Q-Tila", "Sessio"
+    ]
+    return sub_df[cols].copy()
+
+HUMAN_COL_CONFIG = {
+    "Ticker": st.column_config.TextColumn("Osake"),
+    "Kori": st.column_config.TextColumn("Kori"),
+    "Hinta": st.column_config.NumberColumn("Hinta", format="%.2f"),
+    "Muutos %": st.column_config.NumberColumn("Päivä %", format="%+.2f %%"),
+    "Signaali": st.column_config.TextColumn("Tila / Signaali"),
+    "Taseprofiili": st.column_config.TextColumn("Tase & Nettokassa"),
+    "RSI(14)": st.column_config.NumberColumn("RSI (14)", format="%.1f"),
+    "pRVOL_num": st.column_config.NumberColumn("Volyymitahti", format="%.2fx"),
+    "Dyn Tuki": st.column_config.TextColumn("Lähin Tuki"),
+    "Dyn Trim": st.column_config.TextColumn("Tavoitevastus"),
+    "Arvostus": st.column_config.TextColumn("Arvostus"),
+    "Kasvu / Marg / FCF": st.column_config.TextColumn("Kasvu / Liikev.% / FCF"),
+    "Day Low-High": st.column_config.TextColumn("Päivän Väli"),
+    "ADR%": st.column_config.NumberColumn("ADR %", format="%.1f %%"),
+    "Q-Tila": st.column_config.TextColumn("Tulos"),
+    "Sessio": st.column_config.TextColumn("Istunto")
+}
 
 def get_webhook_url():
     try:
@@ -603,17 +746,18 @@ def push_to_google_drive_webhook(markdown_text, webhook_url):
     try:
         resp = requests.post(webhook_url, json={"content": markdown_text}, timeout=10)
         if resp.status_code == 200 and "OK" in resp.text:
-            return True, "✅ Tiedot päivitetty automaattisesti Google Driveen (ST0_LIVE_MARKET_FEED)!"
+            return True, "✅ AI-optimoitu raportti päivitetty automaattisesti Google Driveen (ST0_LIVE_MARKET_FEED)!"
         return False, f"Webhook vastasi koodilla {resp.status_code}: {resp.text[:100]}"
     except Exception as e:
         return False, f"Yhteysvirhe: {str(e)}"
 
 # ==========================================
-# KÄYTTÖLIITTYMÄ (UI) — IHMISEN NÄKYMÄ
+# KÄYTTÖLIITTYMÄ (UI) — IHMISEN OHJAAMO
 # ==========================================
-st.title("📡 ST0 Market Scout v3.4.2 (APEX v7.0.1 Zero-Distortion PWA)")
+st.title("📡 ST0 Market Scout v3.5 — Salkun Live-Ohjaamo")
+st.caption("Kaksijakoinen moottori: Google Driveen lähetetään 100 % AI-optimoitu v7.0.2-syöte, ja tämä sivu on muotoiltu nopeaan silmäilyyn.")
 
-if st.button("🔄 Päivitä Live-Kurssit & Lähetä Driveen", type="primary", use_container_width=True):
+if st.button("🔄 Päivitä Live-Kurssit & Lähetä AI-Syöte Driveen", type="primary", use_container_width=True):
     st.cache_data.clear()
 
 now_str, macro_info, df, macro_news, sector_news, company_news = fetch_all_market_data()
@@ -623,50 +767,80 @@ webhook_url = get_webhook_url()
 ok, msg = push_to_google_drive_webhook(ai_report_md, webhook_url)
 
 if ok:
-    st.success(f"{msg} ({now_str}) — Koko: {len(ai_report_md)} merkkiä ([EOF: {len(df)}/{len(TICKERS)} OK] varmistettu!). Voit nyt avata Gemin ja sanoa: **'Tee tilannepäivitys ja toimintasuunnitelma'**!")
+    st.success(f"{msg} ({now_str}) — {len(ai_report_md)} merkkiä ([EOF: {len(df)}/{len(TICKERS)} OK]). Avaa Gemini ja käytä taitoa **@st0-osakesijoittaja-apex-v7-0-2**!")
 else:
     st.warning(f"🕒 Ladattu: {now_str} | {msg}")
 
-with st.expander("📋 VARAVAIHTOEHTO: Kopioi raportti leikepöydälle (1 klikkaus oikeasta yläkulmasta)", expanded=not ok):
-    st.code(ai_report_md, language="markdown")
-
-# MAKROMITTARIT SIVULLA
+# MAKROMITTARIKORTIT IHMISEN SILMÄILYYN
 vix = macro_info.get("VIX", {})
+vxn = macro_info.get("VXN", {})
 us10y = macro_info.get("US10Y", {})
 nq_f = macro_info.get("NQ_FUT", {})
-es_f = macro_info.get("ES_FUT", {})
 smh = macro_info.get("SMH", {})
 qqq = macro_info.get("QQQ", {})
 spy = macro_info.get("SPY", {})
 fx = macro_info.get("EURUSD", {})
+meta_r = macro_info.get("META_REGIME", {})
+rate_reg = meta_r.get("rate_regime", "RATE_CALM")
+semi_sp = meta_r.get("semi_spread", 0.0)
 
-st.info(
-    f"**🌍 Makro & 24h-Futuurit:** "
-    f"**VIX:** {vix.get('price', 0.0):.2f} ({vix.get('chg_pct', 0.0):+.2f}%) | "
-    f"**US10Y:** {us10y.get('price', 0.0):.2f}% ({us10y.get('chg_pct', 0.0):+.2f}% / 20d {us10y.get('bps_20d', 0):+d}bps) | "
-    f"**NQ-Fut(24h):** {nq_f.get('chg_pct', 0.0):+.2f}% | "
-    f"**ES-Fut(24h):** {es_f.get('chg_pct', 0.0):+.2f}% | "
-    f"**SMH:** 1d {smh.get('chg_pct', 0.0):+.2f}% (20d {smh.get('chg_20d', 0.0):+.1f}%) | "
-    f"**QQQ:** 1d {qqq.get('chg_pct', 0.0):+.2f}% (20d {qqq.get('chg_20d', 0.0):+.1f}%) | "
-    f"**SPY:** 1d {spy.get('chg_pct', 0.0):+.2f}% (20d {spy.get('chg_20d', 0.0):+.1f}%) | "
-    f"**EUR/USD:** {fx.get('price', 0.0):.3f}"
+m1, m2, m3, m4, m5, m6 = st.columns(6)
+m1.metric("S&P 500 VIX", f"{vix.get('price', 0.0):.2f}", f"{vix.get('chg_pct', 0.0):+.2f}%", delta_color="inverse")
+m2.metric(
+    "Tekno-pelko (VXN)",
+    f"{vxn.get('price', 0.0):.2f}" if vxn.get("price", 0.0) > 0 else "-",
+    f"{vxn.get('chg_pct', 0.0):+.2f}%" if vxn.get("price", 0.0) > 0 else None,
+    delta_color="inverse"
 )
+m3.metric(
+    "US 10v Korko",
+    f"{us10y.get('price', 0.0):.2f}%",
+    f"1d {us10y.get('bps_1d', 0):+d} / 20d {us10y.get('bps_20d', 0):+d} bps",
+    delta_color="inverse"
+)
+m4.metric("Siruhajonta (SMH − SPY)", f"{semi_sp:+.2f} %-yks.", f"SMH {smh.get('chg_pct', 0.0):+.2f}%")
+m5.metric("Nasdaq 24h Futuuri", f"{nq_f.get('chg_pct', 0.0):+.2f}%", f"QQQ 1d {qqq.get('chg_pct', 0.0):+.2f}%")
+m6.metric("EUR / USD", f"{fx.get('price', 0.0):.3f}", f"SPY 1d {spy.get('chg_pct', 0.0):+.2f}%")
+
+rate_banner_map = {
+    "RATE_CALM": ("🟢 **Korkotila rauhallinen (`RATE_CALM`):** Normaali `+0,25x ADR` ostopuskuri voimassa laatuyhtiöille."),
+    "RATE_ELEVATED": ("🟡 **Korkotaso koholla (`RATE_ELEVATED`, ≥ 5,15 % ilman korkoshokkia):** Nettokassa- (`🛡️ Linnoitus`) ja tulorahoitusyhtiöt (`⚙️ Tulorahoitus`) ostokelpoisia normaalilla puskurilla; `⚠️ Korkoherkiltä` puskuri pois."),
+    "RATE_SHOCK": ("🔴 **Korkoshokki päällä (`RATE_SHOCK`, jyrkkä korkohyppy):** Kaikki `+0,25x ADR` ostopuskurit väliaikaisesti pois päältä — vaadi suora tukitaso tai `Flush-Trap`.")
+}
+st.info(rate_banner_map.get(rate_reg, rate_banner_map["RATE_CALM"]))
 
 active_df = df[df["Signaali"] != "OK"] if not df.empty else pd.DataFrame()
 inactive_df = df[df["Signaali"] == "OK"] if not df.empty else pd.DataFrame()
 
-st.header(f"📊 Koko Salkku & Seurantalista ({len(df)}/{len(TICKERS)} kohdetta)")
+st.header(f"📊 Salkku & Seurantalista ({len(df)}/{len(TICKERS)} kohdetta)")
 
-st.subheader(f"🚨 1. Aktiiviset Signaalit ({len(active_df)} kpl)")
-st.dataframe(active_df, use_container_width=True, hide_index=True)
+st.subheader(f"🚨 1. Huomiota Vaativat Signaalit ({len(active_df)} kpl)")
+if not active_df.empty:
+    st.dataframe(
+        build_human_display_df(active_df),
+        column_config=HUMAN_COL_CONFIG,
+        use_container_width=True,
+        hide_index=True
+    )
+else:
+    st.caption("Ei aktiivisia signaaleja tällä hetkellä.")
 
-st.subheader(f"🟢 2. Ei Aktiivisia Signaaleja ({len(inactive_df)} kpl)")
-st.dataframe(inactive_df, use_container_width=True, hide_index=True)
+st.subheader(f"🟢 2. Neutraalissa Tilassa Olevat Kohteet ({len(inactive_df)} kpl)")
+if not inactive_df.empty:
+    st.dataframe(
+        build_human_display_df(inactive_df),
+        column_config=HUMAN_COL_CONFIG,
+        use_container_width=True,
+        hide_index=True
+    )
+
+with st.expander("📋 VARAVAIHTOEHTO / TARKISTA AI-SYÖTE: Kopioi raaka AI-raportti leikepöydälle", expanded=not ok):
+    st.code(ai_report_md, language="markdown")
 
 st.divider()
 
-# 3. IHMISEN UUTISOSIO SIVULLA
-st.header("📰 3. Markkina-, Sektori- & Yhtiöuutiset")
+# 3. UUTISOSIO IHMISEN NÄKYMÄSSÄ
+st.header("📰 Markkina-, Sektori- & Yhtiöuutiset")
 
 col1, col2 = st.columns([1, 2])
 
