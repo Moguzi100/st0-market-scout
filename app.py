@@ -270,14 +270,155 @@ def compute_nordnet_trade_quant(row, cfg, macro_info):
         "Peer_Cls": row.get("_peer_cls_str", "-"),
         "Data_Density": row.get("_data_density", "HIGH"),
         "Buy_Limit_Str": f"{buy_limit}({buy_short}/St:{stop_alert})",
-        "Sell_Limit_Str": f"{sell_limit}(-{round(sell_buf_pct*100,1)}%)",
+        "Sell_Limit_Str": f"{sell_limit}(+{gross_gain_pct:.1f}%)",
         "Lot_Str": f"{shares}kpl/{int(round(order_eur))}e",
         "Fee_Str": f"{fee_eur:.0f}e({fee_pct:.1f}%)",
         "PnL_Risk_Str": f"{net_gain_eur:+d}/-{net_risk_eur}e",
         "RR_Days_Str": f"{net_rr}({hold_days}d)",
         "EV_Str": f"{base_p}%/{net_ev_eur:+d}e",
-        "_is_candidate": (row["Signaali"] != "OK") or (float(row.get("_dist_sup_pct", 99.0)) <= 1.8 * adr_pct)
+        "_is_candidate": (row["Signaali"] != "OK") or (float(row.get("_dist_sup_pct", 99.0)) <= 1.8 * adr_pct),
+        "_buy_limit": buy_limit,
+        "_sell_limit": sell_limit,
+        "_stop_alert": stop_alert,
+        "_shares": shares,
+        "_order_eur": round(order_eur, 2),
+        "_fee_eur": round(fee_eur, 2),
+        "_fee_pct": fee_pct,
+        "_net_gain_eur": net_gain_eur,
+        "_net_risk_eur": net_risk_eur,
+        "_net_rr": net_rr,
+        "_hold_days": hold_days,
+        "_base_p": base_p,
+        "_adr_pct": adr_pct,
+        "_q_tier": q_tier,
+        "_is_he": is_he,
     }
+
+
+def calc_round_trip_fee_pct(shares, price, ccy, eur_usd):
+    """Laskee edestakaisen Nordnet-kaupankayntikulun % position arvosta."""
+    sh = float(shares or 0.0)
+    pr = float(price or 0.0)
+    fx = float(eur_usd or 1.10)
+    if fx <= 0.2:
+        fx = 1.10
+    if sh <= 0.0 or pr <= 0.0:
+        return 0.0
+    val_eur = (sh * pr) if str(ccy).upper() == "EUR" else ((sh * pr) / fx)
+    if val_eur <= 0.0:
+        return 0.0
+    rt_fee_eur = max(10.0, val_eur * 0.002) if str(ccy).upper() == "EUR" else (30.0 + val_eur * 0.005)
+    return round((rt_fee_eur / val_eur) * 100.0, 2)
+
+
+def compute_dynamic_position_target(pos, live_price, dyn_trim_price, rsi, eur_usd):
+    """Laskee keskihinta- ja horisonttisidonnaisen %-tavoitteen, kululattian ja tehollisen tavoitehinnan."""
+    slv = str(pos.get("sleeve", "H3")).strip()
+    sh = float(pos.get("shares", 0.0) or 0.0)
+    avg_p = float(pos.get("avg_price", 0.0) or 0.0)
+    ccy = str(pos.get("ccy", "USD")).strip()
+    rt_fee_pct = calc_round_trip_fee_pct(sh, avg_p, ccy, eur_usd)
+
+    default_pct = 6.5 if slv == "H1" else (14.0 if slv == "H2" else 25.0)
+    floor_margin = 5.0 if slv == "H1" else (12.0 if slv == "H2" else 15.0)
+    cfg_pct = float(pos.get("target_gain_pct", 0.0) or 0.0)
+    target_pct = round(max(cfg_pct, default_pct, rt_fee_pct + floor_margin), 2)
+
+    cost_floor_pct = round(rt_fee_pct + 3.0, 2)
+    cost_floor_price = round(avg_p * (1.0 + cost_floor_pct / 100.0), 2) if avg_p > 0 else 0.0
+    avg_target_price = round(avg_p * (1.0 + target_pct / 100.0), 2) if avg_p > 0 else 0.0
+
+    trim_note = f"{pos.get('trim_target', '')} {pos.get('kill', '')}"
+    is_forced_exit = "2/2" in trim_note
+    is_overbought_trim = float(rsi or 50.0) >= 68.0
+    dt_p = float(dyn_trim_price or 0.0)
+    if is_forced_exit:
+        eff_trim_price = round(dt_p if dt_p > 0 else float(live_price or 0.0), 2)
+    elif slv == "H2" and is_overbought_trim and dt_p > 0:
+        eff_trim_price = round(dt_p, 2)
+    else:
+        eff_trim_price = round(max(dt_p, avg_target_price), 2) if dt_p > 0 else avg_target_price
+
+    return {
+        "rt_fee_pct": rt_fee_pct,
+        "target_pct": target_pct,
+        "cost_floor_pct": cost_floor_pct,
+        "cost_floor_price": cost_floor_price,
+        "avg_target_price": avg_target_price,
+        "eff_trim_price": eff_trim_price,
+        "is_forced_exit": is_forced_exit,
+        "is_overbought_trim": is_overbought_trim,
+        "allow_below_cost": is_forced_exit or is_overbought_trim,
+    }
+
+
+def enrich_quant_rows_with_holdings(quant_rows, p_state, macro_info=None):
+    """Paivittaa SPOT-4 kaupparivit omistustietoisiksi: H3-yhdistetty kh (+25% kh) ja H1/H2-kululattia."""
+    if not quant_rows:
+        return []
+    eur_usd = float((macro_info or {}).get("EURUSD", {}).get("price", 1.10) or 1.10)
+    if eur_usd <= 0.2:
+        eur_usd = 1.10
+    pos_map = {}
+    for pos in (p_state or {}).get("positions", []):
+        tk = str(pos.get("ticker", "")).strip()
+        if tk and float(pos.get("shares", 0.0) or 0.0) > 0 and float(pos.get("avg_price", 0.0) or 0.0) > 0:
+            pos_map[tk] = pos
+
+    enriched = []
+    for raw_q in quant_rows:
+        q = dict(raw_q)
+        tk = str(q.get("Ticker", "")).split("(")[0].strip()
+        pos = pos_map.get(tk)
+        if pos and "_buy_limit" in q and float(q.get("_buy_limit", 0.0)) > 0:
+            cur_sh = float(pos["shares"])
+            cur_avg = float(pos["avg_price"])
+            slv = str(pos.get("sleeve", "H3")).strip()
+            buy_limit = float(q["_buy_limit"])
+            add_sh = int(q.get("_shares", 0))
+            order_eur = float(q.get("_order_eur", 0.0))
+            fee_eur = float(q.get("_fee_eur", 0.0))
+            net_risk = max(1, int(q.get("_net_risk_eur", 1)))
+            adr_pct = max(0.5, float(q.get("_adr_pct", 3.5)))
+            q_tier = str(q.get("_q_tier", "Q1"))
+            base_p = int(q.get("_base_p", 55))
+
+            tot_sh = cur_sh + add_sh
+            new_avg = round(((cur_sh * cur_avg) + (add_sh * buy_limit)) / tot_sh, 2) if tot_sh > 0 else cur_avg
+            blended_pos = {**pos, "shares": tot_sh, "avg_price": new_avg}
+            tgt_info = compute_dynamic_position_target(blended_pos, buy_limit, float(q.get("_sell_limit", 0.0)), 50.0, eur_usd)
+
+            if slv == "H3":
+                target_pct = tgt_info["target_pct"]
+                new_sell = round(new_avg * (1.0 + target_pct / 100.0), 2)
+                gross_gain_pct = ((new_sell / buy_limit) - 1.0) * 100.0
+                adj_p = base_p - 10 if gross_gain_pct > 20.0 else base_p
+                adj_p = max(35, min(65, adj_p))
+                sell_lbl = f"{new_sell}(+{target_pct:.0f}%kh/kh2:{new_avg:.2f})"
+                q["Q_Horiz"] = f"{q_tier}:H3-ADD"
+            else:
+                new_sell = tgt_info["eff_trim_price"] if tgt_info["eff_trim_price"] > buy_limit else float(q["_sell_limit"])
+                gross_gain_pct = ((new_sell / buy_limit) - 1.0) * 100.0
+                adj_p = base_p
+                sell_lbl = f"{new_sell}(+{gross_gain_pct:.1f}%/kh)"
+                q["Q_Horiz"] = f"{q_tier}:{slv}"
+
+            net_gain = int(round(order_eur * (gross_gain_pct / 100.0) - fee_eur))
+            net_rr = round(max(0.0, float(net_gain)) / float(net_risk), 2)
+            hold_days = round(gross_gain_pct / adr_pct, 1)
+            net_ev = int(round((adj_p / 100.0) * net_gain - ((100 - adj_p) / 100.0) * net_risk))
+
+            q["Sell_Limit_Str"] = sell_lbl
+            q["PnL_Risk_Str"] = f"{net_gain:+d}/-{net_risk}e"
+            q["RR_Days_Str"] = f"{net_rr}({hold_days}d)"
+            q["EV_Str"] = f"{adj_p}%/{net_ev:+d}e"
+            q["_sell_limit"] = new_sell
+            q["_net_gain_eur"] = net_gain
+            q["_net_rr"] = net_rr
+            q["_hold_days"] = hold_days
+            q["_base_p"] = adj_p
+        enriched.append(q)
+    return enriched
 
 def is_clean_headline(title):
     if not title or len(str(title).strip()) < 15:
@@ -1032,7 +1173,7 @@ def format_quant_md_table(quant_rows):
         )
     return header + sep + body
 
-def build_ai_dual_markdown_reports(now_str, macro_info, df, macro_news, sector_news, company_news):
+def build_ai_dual_markdown_reports(now_str, macro_info, df, macro_news, sector_news, company_news, p_state=None):
     vix = macro_info.get("VIX", {})
     vxn = macro_info.get("VXN", {})
     us10y = macro_info.get("US10Y", {})
@@ -1050,6 +1191,8 @@ def build_ai_dual_markdown_reports(now_str, macro_info, df, macro_news, sector_n
     hyper_opm = meta_r.get("hyper_opm_avg", 28.0)
     tsm_rev = meta_r.get("tsm_rev_pct", 50.0)
     quant_rows = macro_info.get("QUANT_ROWS", [])
+    if p_state is not None:
+        quant_rows = enrich_quant_rows_with_holdings(quant_rows, p_state, macro_info)
 
     vix_p = float(vix.get("price", 0.0))
     vxn_p = float(vxn.get("price", 0.0))
@@ -1071,7 +1214,7 @@ def build_ai_dual_markdown_reports(now_str, macro_info, df, macro_news, sector_n
     if rate_reg == "RATE_SHOCK":
         rate_rule_auto = "RATE_SHOCK => Kytke +0.25x ADR etupuskuri POIS kaikilta; DEBT-ostot tauolla"
     elif rate_reg == "RATE_ELEVATED":
-        rate_rule_auto = "RATE_ELEVATED => FORT & SELF: +0.25x ADR etupuskuri PÄÄLLÄ | DEBT: puskuri POIS ja vaadi Netto R:R >= 2.4"
+        rate_rule_auto = "RATE_ELEVATED => FORT & SELF: +0.25x ADR etupuskuri PÄÄLLÄ | DEBT: puskuri POIS ja vaadi Netto R:R vahintaan 2.4"
     else:
         rate_rule_auto = "RATE_CALM => Normaali +0.25x ADR etupuskuri FORT/SELF-kohteille"
 
@@ -1133,6 +1276,9 @@ def build_ai_dual_markdown_reports(now_str, macro_info, df, macro_news, sector_n
         n_md += "- Ei todennettuja yhtiöuutisia.\n"
 
     n_md += f"[EOF_2: NEWS {loaded_cnt}/{total_cnt} OK]\n"
+    for _bad, _rep in (("=>", ":"), ("$", "USD "), ("~", "noin "), ("<=", "enintaan "), (">=", "vahintaan "), ("<", "alle "), (">", "yli ")):
+        q_md = q_md.replace(_bad, _rep)
+        n_md = n_md.replace(_bad, _rep)
     return q_md, n_md
 
 def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, company_news):
@@ -1153,23 +1299,19 @@ DEFAULT_PORTFOLIO_STATE = {
     "anchor_unit_nav_eur": 45.22425,
     "anchor_total_units": 1000.000,
     "positions": [
-        {"ticker": "GOOG",    "account": "OST", "bucket": "K1:Core",  "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 27.0,  "avg_price": 308.77, "lower_alert": 272.00, "buy_alert": 275.00, "trim_target": "Hold H3 (HOT P/E yli 28x)", "kill": "Search-kasvu negatiivinen tai OpM alle 26%"},
-        {"ticker": "AMZN",    "account": "OST", "bucket": "K1:Core",  "bs": "SELF", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 16.0,  "avg_price": 260.17, "lower_alert": 255.00, "buy_alert": 256.94, "trim_target": "Hold H3 (HOT P/E yli 35x)", "kill": "AWS-kasvu alle 12% tai OpM alle 10%"},
-        {"ticker": "AVGO",    "account": "OST", "bucket": "K2:Semi",  "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 18.0,  "avg_price": 354.66, "lower_alert": 296.31, "buy_alert": 299.64, "trim_target": "Hold H3 (HOT P/E yli 38x)", "kill": "XPU-sopimusmenetys tai OpM alle 40%"},
-        {"ticker": "TSM",     "account": "OST", "bucket": "K2:Semi",  "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 12.0,  "avg_price": 364.88, "lower_alert": 365.49, "buy_alert": 370.00, "trim_target": "Hold H3 (HOT P/E yli 28x)", "kill": "Kuukausimyynti alle +20% YoY tai Taiwan-eskalaatio"},
-        {"ticker": "NVDA",    "account": "OST", "bucket": "K2:Semi",  "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 20.0,  "avg_price": 177.91, "lower_alert": 158.49, "buy_alert": 160.39, "trim_target": "200-240 USD (H1-erä 178.14 USD)", "kill": "DC-bruttokate alle 70% tai Q3-ohjeistuspettymys"},
-        {"ticker": "MU",      "account": "OST", "bucket": "K2:Semi",  "bs": "FORT", "q_tier": "Q2", "sleeve": "H2", "shift_ok": False, "ccy": "USD", "shares": 3.0,   "avg_price": 867.08, "lower_alert": 725.00, "buy_alert": 665.00, "trim_target": "865-910 USD (100% exit RSI yli 68)", "kill": "HBM-hinnat laskuun tai SMA200 murtuma pRVOL yli 1.5x"},
-        {"ticker": "ASML",    "account": "OST", "bucket": "K2:Semi",  "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 1.0,   "avg_price": 1013.80, "lower_alert": 1384.96, "buy_alert": 1415.00, "trim_target": "Ei myyntikattoa (alipaino 2.93%)", "kill": "Tilauskertymä alle 2.5 mrd EUR kahdesti"},
-        {"ticker": "SPCX",    "account": "OST", "bucket": "K3:Beta",  "bs": "DEBT", "q_tier": "Q3", "sleeve": "H1", "shift_ok": False, "ccy": "USD", "shares": 29.0,  "avg_price": 138.08, "lower_alert": 135.00, "buy_alert": 0.00,   "trim_target": "140.69-147.30 USD (tai vaihto ANT IPO)", "kill": "Starship-lentokielto tai BB-Low 127.09 murtuma"},
-        {"ticker": "MSTR",    "account": "OST", "bucket": "K3:Beta",  "bs": "DEBT", "q_tier": "Q3", "sleeve": "H1", "shift_ok": False, "ccy": "USD", "shares": 16.0,  "avg_price": 139.55, "lower_alert": 108.25, "buy_alert": 0.00,   "trim_target": "116.00-120.95 USD (2/2 strikes exit)", "kill": "BTC viikkopäätös alle 72k USD + MSCI 30.11. poisto (2/2)"},
-        {"ticker": "WRT1V",   "account": "OST", "bucket": "K4:Suomi", "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "EUR", "shares": 106.0, "avg_price": 27.36,  "lower_alert": 24.51,  "buy_alert": 24.80,  "trim_target": "29.50-31.00 EUR (HOT P/E yli 22.5x)", "kill": "Tilauskertymän lasku 2 kvartaalia tai alle 24.51 EUR"},
-        {"ticker": "FRAMERY", "account": "OST", "bucket": "K4:Suomi", "bs": "SELF", "q_tier": "Q2", "sleeve": "H2", "shift_ok": False, "ccy": "EUR", "shares": 230.0, "avg_price": 8.69,   "lower_alert": 6.79,   "buy_alert": 6.86,   "trim_target": "7.90-7.95 EUR (RSI 71.5 yliostettu)", "kill": "Putoaminen takaisin alle SMA200 6.79 EUR"}
+        {"ticker": "GOOG",    "account": "OST", "bucket": "K1:Core",  "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 27.0,  "avg_price": 308.77,  "lower_alert": 272.00,  "buy_alert": 275.00,  "target_gain_pct": 25.0, "trim_target": "Hold H3 (+25% kh / HOT PE yli 28x)", "kill": "Search-kasvu negatiivinen tai OpM alle 26%"},
+        {"ticker": "AMZN",    "account": "OST", "bucket": "K1:Core",  "bs": "SELF", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 16.0,  "avg_price": 260.17,  "lower_alert": 255.00,  "buy_alert": 256.94,  "target_gain_pct": 25.0, "trim_target": "Hold H3 (+25% kh / HOT PE yli 35x)", "kill": "AWS-kasvu alle 12% tai OpM alle 10%"},
+        {"ticker": "AVGO",    "account": "OST", "bucket": "K2:Semi",  "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 18.0,  "avg_price": 354.66,  "lower_alert": 296.31,  "buy_alert": 299.64,  "target_gain_pct": 25.0, "trim_target": "Hold H3 (+25% kh / HOT PE yli 38x)", "kill": "XPU-sopimusmenetys tai OpM alle 40%"},
+        {"ticker": "TSM",     "account": "OST", "bucket": "K2:Semi",  "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 12.0,  "avg_price": 364.88,  "lower_alert": 365.49,  "buy_alert": 370.00,  "target_gain_pct": 25.0, "trim_target": "Hold H3 (+25% kh / HOT PE yli 28x)", "kill": "Kuukausimyynti alle +20% YoY tai Taiwan-eskalaatio"},
+        {"ticker": "NVDA",    "account": "OST", "bucket": "K2:Semi",  "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 20.0,  "avg_price": 177.91,  "lower_alert": 158.49,  "buy_alert": 160.39,  "target_gain_pct": 25.0, "trim_target": "Hold H3 (+25% kh / HOT PE yli 50x)", "kill": "DC-bruttokate alle 70% tai Q3-ohjeistuspettymys"},
+        {"ticker": "MU",      "account": "OST", "bucket": "K2:Semi",  "bs": "FORT", "q_tier": "Q2", "sleeve": "H2", "shift_ok": False, "ccy": "USD", "shares": 3.0,   "avg_price": 867.08,  "lower_alert": 725.00,  "buy_alert": 665.00,  "target_gain_pct": 14.0, "trim_target": "H2 +14% kh (tai 100% exit RSI yli 68)", "kill": "HBM-hinnat laskuun tai SMA200 murtuma pRVOL yli 1.5x"},
+        {"ticker": "ASML",    "account": "OST", "bucket": "K2:Semi",  "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 1.0,   "avg_price": 1013.80, "lower_alert": 1384.96, "buy_alert": 1415.00, "target_gain_pct": 25.0, "trim_target": "Ei myyntikattoa H3 (+25% kh / alipaino)", "kill": "Tilauskertymä alle 2.5 mrd EUR kahdesti"},
+        {"ticker": "SPCX",    "account": "OST", "bucket": "K3:Beta",  "bs": "DEBT", "q_tier": "Q3", "sleeve": "H1", "shift_ok": False, "ccy": "USD", "shares": 29.0,  "avg_price": 138.08,  "lower_alert": 135.00,  "buy_alert": 0.00,    "target_gain_pct": 6.5,  "trim_target": "H1 +6.5% kh (min. kulu+5% tai ANT IPO)", "kill": "Starship-lentokielto tai BB-Low 127.09 murtuma"},
+        {"ticker": "MSTR",    "account": "OST", "bucket": "K3:Beta",  "bs": "DEBT", "q_tier": "Q3", "sleeve": "H1", "shift_ok": False, "ccy": "USD", "shares": 16.0,  "avg_price": 139.55,  "lower_alert": 108.25,  "buy_alert": 0.00,    "target_gain_pct": 6.5,  "trim_target": "2/2 strikes exit pomppuun (suoja 60d-Low)", "kill": "BTC viikkopäätös alle 72k USD + MSCI 30.11. poisto (2/2)"},
+        {"ticker": "WRT1V",   "account": "OST", "bucket": "K4:Suomi", "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "EUR", "shares": 106.0, "avg_price": 27.36,   "lower_alert": 24.51,   "buy_alert": 24.80,   "target_gain_pct": 25.0, "trim_target": "Hold H3 (+25% kh / HOT PE yli 22.5x)", "kill": "Tilauskertymän lasku 2 kvartaalia tai alle 24.51 EUR"},
+        {"ticker": "FRAMERY", "account": "OST", "bucket": "K4:Suomi", "bs": "SELF", "q_tier": "Q2", "sleeve": "H2", "shift_ok": False, "ccy": "EUR", "shares": 230.0, "avg_price": 8.69,    "lower_alert": 6.79,    "buy_alert": 6.86,    "target_gain_pct": 14.0, "trim_target": "H2 +14% kh (tai trim RSI yli 68)", "kill": "Putoaminen takaisin alle SMA200 6.79 EUR"}
     ],
-    "orders": [
-        {"ticker": "FRAMERY", "action": "SELL_LIMIT_OMXH_MA_0945", "shares": 230.0, "limit_price": 7.95,   "ccy": "EUR", "note": "Uusitaan ma 16.11. klo 09:45 (RSI 71.5 TRIM)"},
-        {"ticker": "SPCX",    "action": "SELL_LIMIT_US_EXT_1100",  "shares": 29.0,  "limit_price": 140.69, "ccy": "USD", "note": "Dyn Trim -0.25x ADR (vapautus kohti ANT IPO)"},
-        {"ticker": "MSTR",    "action": "SELL_LIMIT_2OF2_EXIT",    "shares": 16.0,  "limit_price": 120.95, "ccy": "USD", "note": "2/2 strikes exit pomppuun (suoja 108.25 USD)"}
-    ]
+    "orders": []
 }
 
 def calc_one_way_nordnet_sell_eur(shares, price, ccy, eur_usd):
@@ -1337,6 +1479,7 @@ def build_ai_portfolio_quant_report(now_str, macro_info, df, p_state=None):
         pnl_e = ((cur_p - avg_p) * sh) / fx_div
         pnl_p = ((cur_p / avg_p) - 1.0) * 100.0 if avg_p > 0 else 0.0
         dist_sup = ((cur_p / sup_p) - 1.0) * 100.0 if sup_p > 0 else 0.0
+        tgt_info = compute_dynamic_position_target(pos, cur_p, trim_p, rsi_v, fx_val)
 
         tot_mkt_eur += val_e
         tot_open_pnl_eur += pnl_e
@@ -1362,6 +1505,13 @@ def build_ai_portfolio_quant_report(now_str, macro_info, df, p_state=None):
             "dist_sup_pct": dist_sup,
             "trim_str": trim_str,
             "trim_price": trim_p,
+            "rt_fee_pct": tgt_info["rt_fee_pct"],
+            "target_pct": tgt_info["target_pct"],
+            "cost_floor_pct": tgt_info["cost_floor_pct"],
+            "cost_floor_price": tgt_info["cost_floor_price"],
+            "avg_target_price": tgt_info["avg_target_price"],
+            "eff_trim_price": tgt_info["eff_trim_price"],
+            "allow_below_cost": tgt_info["allow_below_cost"],
             "signal": sig_str,
             "data_density": dd_str,
             "val_eur": val_e,
@@ -1405,7 +1555,7 @@ def build_ai_portfolio_quant_report(now_str, macro_info, df, p_state=None):
     units_redeemed = housing_res / unit_nav if unit_nav > 0 else 0.0
     rem_units = anchor_units - units_redeemed
 
-    # Hälytykset, myyntijono, Exit Drift ja Stale-Bid
+    # Hälytykset, myyntijono, Exit Drift, Kulu-lattia ja Stale-Bid
     alerts_list = []
     sell_queue_lines = []
     stale_bid_lines = []
@@ -1422,12 +1572,21 @@ def build_ai_portfolio_quant_report(now_str, macro_info, df, p_state=None):
             pending_sells_net_eur = round(pending_sells_net_eur + n_e, 2)
             pr_match = pos_by_t.get(ot)
             drift_tag = "EXIT_OK"
-            if pr_match and pr_match["trim_price"] > 0:
-                diff_vs_trim = ((olp / pr_match["trim_price"]) - 1.0) * 100.0
-                if olp > pr_match["trim_price"] * 1.001:
-                    drift_tag = f"EXIT_DRIFT (+{diff_vs_trim:.1f}% yli {pr_match['trim_str']})"
-                else:
-                    drift_tag = f"EXIT_OK ({diff_vs_trim:+.1f}% vs {pr_match['trim_str']})"
+            if pr_match:
+                ref_trim = pr_match["eff_trim_price"] if pr_match.get("eff_trim_price", 0.0) > 0 else pr_match["trim_price"]
+                if ref_trim > 0:
+                    diff_vs_trim = ((olp / ref_trim) - 1.0) * 100.0
+                    if olp > ref_trim * 1.005:
+                        drift_tag = f"EXIT_DRIFT (+{diff_vs_trim:.1f}% yli {ref_trim:.2f})"
+                    else:
+                        drift_tag = f"EXIT_OK ({diff_vs_trim:+.1f}% vs {ref_trim:.2f})"
+                ord_txt = f"{o.get('action', '')} {o.get('note', '')}".upper()
+                is_ord_2of2 = ("2/2" in ord_txt) or ("2_OF_2" in ord_txt) or ("2OF2" in ord_txt)
+                if pr_match["cost_floor_price"] > 0 and olp < pr_match["cost_floor_price"] and not (pr_match["allow_below_cost"] or is_ord_2of2):
+                    drift_tag += f" | EXIT_BELOW_COST(lattia {pr_match['cost_floor_price']:.2f})"
+                    alerts_list.append(
+                        f"- {ot} [EXIT_BELOW_COST]: Pilkki {olp:.2f} {occy} alittaa kulu+3% lattian {pr_match['cost_floor_price']:.2f} {occy} (Kh-tav +{pr_match['target_pct']:.1f}% = {pr_match['avg_target_price']:.2f})"
+                    )
             sell_queue_lines.append(
                 f"- MYYNTI {ot} ({int(osh)} kpl @ {olp:.2f} {occy}): {g_e:.2f} - kulu {f_e:.2f} = +{n_e:.2f} EUR netto [{drift_tag}]"
             )
@@ -1452,7 +1611,7 @@ def build_ai_portfolio_quant_report(now_str, macro_info, df, p_state=None):
             )
         if pr["rsi"] >= 68.0 or "TRIM" in pr["signal"]:
             alerts_list.append(
-                f"- {t} [OVERBOUGHT_TRIM]: RSI {pr['rsi']:.1f} ({pr['signal']}), kotiuta vastukseen ({pr.get('trim_target', pr['trim_str'])})"
+                f"- {t} [OVERBOUGHT_TRIM]: RSI {pr['rsi']:.1f} ({pr['signal']}), kotiuta vastukseen ({pr['trim_str']} | Kh-tav {pr['avg_target_price']:.2f})"
             )
         if buy_al > 0 and pr["adr_pct"] > 0:
             gap_pct = ((lp - buy_al) / lp) * 100.0
@@ -1467,10 +1626,12 @@ def build_ai_portfolio_quant_report(now_str, macro_info, df, p_state=None):
                 f"- {t} [WEIGHT_CAP_BREACH]: Paino {pr['weight_pct']:.2f}% ({tags_lbl}, ei lisaostoja)"
             )
 
-    # Clean-Slate Top 3 (yhdenmukaistettu Doc 1 SPOT-4 _is_candidate-suodatuksella, pl. TRIM-kohteet)
-    cand_pool = [q for q in (quant_rows or []) if q.get("_is_candidate")]
+    # Clean-Slate Top 3 (omistustietoinen SPOT-4 _is_candidate-suodatuksella, pl. TRIM-kohteet)
+    enriched_quant = enrich_quant_rows_with_holdings(quant_rows, p_state, macro_info)
+    spot4_map = {str(q.get("Ticker", "")).split("(")[0].strip(): q for q in enriched_quant}
+    cand_pool = [q for q in enriched_quant if q.get("_is_candidate")]
     if not cand_pool:
-        cand_pool = (quant_rows or [])[:6]
+        cand_pool = enriched_quant[:6]
     cand_pool = cand_pool[:10]
     clean_candidates = []
     for q in cand_pool:
@@ -1489,23 +1650,23 @@ def build_ai_portfolio_quant_report(now_str, macro_info, df, p_state=None):
     best_cs_sym = clean_candidates[0][1] if clean_candidates else "AVGO"
     best_cs_ev = clean_candidates[0][0] if clean_candidates else 239.0
 
-    # Rakenna Doc 3 Markdown (SYNTAX_LOCK_CLEAN: ei $, ~, <, > merkkejä!)
-    r1_h1 = f"{round(tot_eq_eur*0.008)}-{round(tot_eq_eur*0.012)} EUR"
-    r1_h2 = f"{round(tot_eq_eur*0.012)}-{round(tot_eq_eur*0.020)} EUR"
-    r1_h3 = f"{round(tot_eq_eur*0.020)}-{round(tot_eq_eur*0.035)} EUR"
+    # Rakenna Doc 3 Markdown (SYNTAX_LOCK_CLEAN: ei $, ~, <, > merkkejä; tiivis < 7 500 merkkiä!)
+    r1_h1 = f"{round(tot_eq_eur*0.008)}-{round(tot_eq_eur*0.012)}e"
+    r1_h2 = f"{round(tot_eq_eur*0.012)}-{round(tot_eq_eur*0.020)}e"
+    r1_h3 = f"{round(tot_eq_eur*0.020)}-{round(tot_eq_eur*0.035)}e"
 
-    p_md = "# ST0_LIVE_PORTFOLIO_QUANT — ALGORITMI E (v3.7 TRIPLE-DOC — APEX v7.1.0)\n"
+    p_md = "# ST0_LIVE_PORTFOLIO_QUANT — ALGORITMI E (v3.7 TRIPLE-DOC — APEX v7.1.2)\n"
     p_md += f"AIKALEIMA: {now_str} | EUR/USD: {fx_val:.3f} | KORKO & KELLO: {rate_reg} | {clock_str}\n"
 
-    p_md += "## 1. LIVE-SALKKU, OST+AOT KASSA, UNIT-NAV TWR% & ASUNTOVARAUS\n"
-    p_md += f"- KOKONAISPAAOMA: {tot_eq_eur:.2f} EUR (OST {ost_eq_eur:.2f} + AOT {cash_aot:.2f} | 01.11. {base_nov01:.2f} EUR, {nov01_pct:+.2f}%)\n"
-    p_md += f"- OSAKKEET ({len(pos_records)} rivia): {tot_mkt_eur:.2f} EUR ({(tot_mkt_eur/tot_eq_eur)*100:.2f}%) | Avoin PnL: {tot_open_pnl_eur:+.2f} EUR | OST kumul. PnL: {ost_cum_pnl:+.2f} EUR (100% verovapaa nosto)\n"
-    p_md += f"- KASSA: {cash_total:.2f} EUR ({(cash_total/tot_eq_eur)*100:.2f}%) | Asuntovaraus: {housing_res:.2f} EUR | Ostopilkit: {tied_buys:.2f} EUR | DRY POWDER: {free_dry_powder:.2f} EUR ({(free_dry_powder/tot_eq_eur)*100:.2f}%)\n"
-    p_md += f"- UNIT-NAV & TWR%: {unit_nav:.5f} EUR/osuus ({twr_pct:+.2f}% yli 09.11. ankkurin {anchor_nav:.5f} EUR / {anchor_units:.1f} osuutta)\n"
-    p_md += f"- ASUNTOVARAUS (4000 EUR): A) Nosto lunastaa {units_redeemed:.3f} osuutta (jaa {rem_units:.3f} osuutta, NAV {unit_nav:.5f} EUR = 0.00% TWR-vaaristymä) | B) Vapautus nostaa vapaan kassan {cash_total:.2f} EUR\n"
-    p_md += f"- MYYNTIJONON NETTO: +{pending_sells_net_eur:.2f} EUR netto (vapaa kassa {free_dry_powder + pending_sells_net_eur:.2f} EUR / B: {cash_total + pending_sells_net_eur:.2f} EUR ke 18.11. ANT OST-IPOon)\n"
+    p_md += "## 1. LIVE-SALKKU, KASSA, UNIT-NAV TWR% & ASUNTOVARAUS\n"
+    p_md += f"- PAAAOMA: {tot_eq_eur:.2f} EUR (OST {ost_eq_eur:.2f} + AOT {cash_aot:.2f} | 01.11. {base_nov01:.2f}e, {nov01_pct:+.2f}%)\n"
+    p_md += f"- OSAKKEET ({len(pos_records)}): {tot_mkt_eur:.2f} EUR ({(tot_mkt_eur/tot_eq_eur)*100:.2f}%) | Avoin PnL: {tot_open_pnl_eur:+.2f}e | OST kum. PnL: {ost_cum_pnl:+.2f}e\n"
+    p_md += f"- KASSA: {cash_total:.2f} EUR ({(cash_total/tot_eq_eur)*100:.2f}%) | Asunto: {housing_res:.0f}e | Pilkit: {tied_buys:.0f}e | DRY POWDER: {free_dry_powder:.2f} EUR ({(free_dry_powder/tot_eq_eur)*100:.2f}%)\n"
+    p_md += f"- UNIT-NAV & TWR%: {unit_nav:.5f}e/os ({twr_pct:+.2f}% vs {anchor_nav:.5f}e / {anchor_units:.0f} os)\n"
+    p_md += f"- ASUNTOVARAUS ({housing_res:.0f}e): A) Nosto -{units_redeemed:.3f} os (jaa {rem_units:.3f}, 0% TWR-harha) | B) Vapautus kassa {cash_total:.2f}e\n"
+    p_md += f"- MYYNTIJONO: +{pending_sells_net_eur:.2f} EUR netto (vapaa {free_dry_powder + pending_sells_net_eur:.2f}e / B: {cash_total + pending_sells_net_eur:.2f}e)\n"
 
-    p_md += "## 2. 4-KORIN (K1-K4) VAPAA KAPASITEETTI & 3-HORISONTIN (H1-H3) 1R-BUDJETIT\n"
+    p_md += "## 2. 4-KORI & 3-HORISONTIN 1R-BUDJETIT\n"
     b_caps = [("K1:Core", 25.0, 40.0), ("K2:Semi", 30.0, 42.0), ("K3:Beta", 0.0, 18.0), ("K4:Suomi", 8.0, 20.0)]
     for bk, b_fl, b_cp in b_caps:
         bv = bucket_eur.get(bk, 0.0)
@@ -1513,7 +1674,7 @@ def build_ai_portfolio_quant_report(now_str, macro_info, df, p_state=None):
         rem_e = (tot_eq_eur * (b_cp / 100.0)) - bv
         rem_p = b_cp - bp
         st_lbl = "ALIPAINO" if (b_fl > 0 and bp < b_fl) else ("YLITETTY!" if bp > b_cp else "OK")
-        p_md += f"- {bk}: {bv:.2f} EUR ({bp:.2f}% / katto {b_cp:.0f}%) | Vapaa: {rem_e:+.2f} EUR ({rem_p:+.2f} pp) [{st_lbl}]\n"
+        p_md += f"- {bk}: {bv:.0f}e ({bp:.2f}%/{b_cp:.0f}%) | Vapaa: {rem_e:+.0f}e ({rem_p:+.2f}pp) [{st_lbl}]\n"
         if b_fl > 0 and bp < b_fl:
             alerts_list.append(
                 f"- {bk} [BUCKET_FLOOR_BREACH]: Paino {bp:.2f}% alle {b_fl:.0f}% lattian ({bp - b_fl:+.2f} pp)"
@@ -1523,20 +1684,20 @@ def build_ai_portfolio_quant_report(now_str, macro_info, df, p_state=None):
                 f"- {bk} [BUCKET_CAP_BREACH]: Paino {bp:.2f}% yli {b_cp:.0f}% katon ({bp - b_cp:+.2f} pp, OSTO-LUKKO)"
             )
     p_md += (
-        f"- HORISONTIT & 1R: H1 (2pv-4vk, AI 80/20, 1R {r1_h1}): {horizon_eur['H1']:.2f} EUR ({(horizon_eur['H1']/tot_eq_eur)*100:.2f}%) | "
-        f"H2 (1-12kk, AI 50/50, 1R {r1_h2}): {horizon_eur['H2']:.2f} EUR ({(horizon_eur['H2']/tot_eq_eur)*100:.2f}%) | "
-        f"H3 (1-5v, Human 65/35, 1R {r1_h3}): {horizon_eur['H3']:.2f} EUR ({(horizon_eur['H3']/tot_eq_eur)*100:.2f}%)\n"
+        f"- HORISONTIT & 1R: H1 (AI 80/20, 1R {r1_h1}): {horizon_eur['H1']:.0f}e ({(horizon_eur['H1']/tot_eq_eur)*100:.1f}%) | "
+        f"H2 (AI 50/50, 1R {r1_h2}): {horizon_eur['H2']:.0f}e ({(horizon_eur['H2']/tot_eq_eur)*100:.1f}%) | "
+        f"H3 (Hum 65/35, 1R {r1_h3}): {horizon_eur['H3']:.0f}e ({(horizon_eur['H3']/tot_eq_eur)*100:.1f}%)\n"
     )
 
-    p_md += "## 3. 11 AKTIIVISEN SALKKUPOSITION REAALIAIKAINEN MATRIISI\n"
-    p_md += "|Ticker|Tase:Q:H|Kpl|Kh|Live(1d%)|ArvoEUR(Paino%)|PnLEUR(%)|Arvostus|RSI/pRVOL|Tuki(Et.)|DynTrim|Data|Signaali|\n"
-    p_md += "|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+    p_md += "## 3. SALKKUPOSITIOIDEN REAALIAIKAINEN MATRIISI & DYNAAMISET % KH-TAVOITTEET\n"
+    p_md += "|Ticker|Tase:Q:H|Kpl|Kh|Live(1d%)|Arvo(Paino%)|PnL(%)|Arvo|RSI/pRVOL|Tuki(Et.)|DynTrim|KhTav(%kh)|Data|Signaali|\n"
+    p_md += "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
     for pr in pos_records:
         p_md += (
             f"|{pr['ticker']}|{pr['bs']}:{pr['q_tier']}:{pr['sleeve']}|{int(pr['shares'])}|{pr['avg_price']:.2f}|"
-            f"{pr['live_price']:.2f} {pr['ccy']}({pr['chg_1d']:+.2f}%)|{pr['val_eur']:.0f}e({pr['weight_pct']:.2f}%)|"
-            f"{pr['pnl_eur']:+.0f}e({pr['pnl_pct']:+.2f}%)|{pr['val_dna']}|{pr['rsi']:.1f}/{pr['prvol']:.2f}x|"
-            f"{pr['sup_str']}({pr['dist_sup_pct']:+.1f}%)|{pr['trim_str']}|{pr['data_density']}|{pr['signal']}|\n"
+            f"{pr['live_price']:.2f}{pr['ccy']}({pr['chg_1d']:+.1f}%)|{pr['val_eur']:.0f}e({pr['weight_pct']:.1f}%)|"
+            f"{pr['pnl_eur']:+.0f}e({pr['pnl_pct']:+.1f}%)|{pr['val_dna']}|{pr['rsi']:.0f}/{pr['prvol']:.2f}x|"
+            f"{pr['sup_str']}({pr['dist_sup_pct']:+.1f}%)|{pr['trim_str']}|{pr['avg_target_price']:.2f}(+{pr['target_pct']:.1f}%)|{pr['data_density']}|{pr['signal']}|\n"
         )
 
     p_md += "## 4. LAUENNEET KURSSIHALYTYKSET, 1-SUUNNAN MYYNTIJONO, EXIT DRIFT & STALE-BID\n"
@@ -1642,7 +1803,7 @@ def build_ai_portfolio_quant_report(now_str, macro_info, df, p_state=None):
     return p_md, summary_meta
 
 def build_ai_triple_markdown_reports(now_str, macro_info, df, macro_news, sector_news, company_news, p_state=None):
-    q_md, n_md = build_ai_dual_markdown_reports(now_str, macro_info, df, macro_news, sector_news, company_news)
+    q_md, n_md = build_ai_dual_markdown_reports(now_str, macro_info, df, macro_news, sector_news, company_news, p_state=p_state)
     p_md, p_meta = build_ai_portfolio_quant_report(now_str, macro_info, df, p_state)
     return q_md, n_md, p_md, p_meta
 
@@ -1801,6 +1962,7 @@ with st.expander("💼 SALKKULASKURI, HÄLYTYKSET & MOBIILIMUOKKAUS (Algoritmi E
                     "Arvostus": r["val_dna"],
                     "Tuki (Et.)": f"{r['sup_str']} ({r['dist_sup_pct']:+.1f}%)",
                     "Dyn Trim": r["trim_str"],
+                    "Kh-Tavoite": f"{r['avg_target_price']:.2f} (+{r['target_pct']:.1f}%)",
                     "Signaali": r["signal"],
                 }
                 for r in p_meta["pos_records"]
@@ -1813,28 +1975,51 @@ with st.expander("💼 SALKKULASKURI, HÄLYTYKSET & MOBIILIMUOKKAUS (Algoritmi E
         new_cash_aot = c_col2.number_input("AOT Käteinen (EUR)", value=float(p_state_active.get("cash_aot_eur", 10.00)), step=10.0, format="%.2f")
         new_housing = c_col3.number_input("Asuntovaraus (EUR)", value=float(p_state_active.get("housing_reservation_eur", 4000.00)), step=100.0, format="%.2f")
 
-        st.markdown("**Osakepositiot (muokkaa Kpl, Kh tai Horisontti):**")
+        st.markdown("**Osakepositiot (muokkaa Kpl, Kh, Horisontti tai Tavoite-%):**")
+        pos_cols = ["ticker", "account", "bucket", "bs", "q_tier", "sleeve", "shift_ok", "ccy", "shares", "avg_price", "lower_alert", "buy_alert", "target_gain_pct", "trim_target", "kill"]
+        pos_df_in = pd.DataFrame(p_state_active.get("positions", []))
+        for pc in pos_cols:
+            if pc not in pos_df_in.columns:
+                pos_df_in[pc] = 25.0 if pc == "target_gain_pct" else ""
         edited_pos_df = st.data_editor(
-            pd.DataFrame(p_state_active.get("positions", [])),
+            pos_df_in[pos_cols],
             use_container_width=True,
             num_rows="dynamic",
             key="mobile_pos_editor"
         )
-        st.markdown("**Aktiiviset Myynti-/Ostopilkit (`01`):**")
+        st.markdown("**Aktiiviset Myynti-/Ostopilkit (`01` — tyhjä kun ei aktiivisia):**")
+        ord_cols = ["ticker", "action", "shares", "limit_price", "ccy", "note"]
+        ord_raw = p_state_active.get("orders", [])
+        ord_df_in = pd.DataFrame(ord_raw, columns=ord_cols) if not ord_raw else pd.DataFrame(ord_raw).reindex(columns=ord_cols)
         edited_ord_df = st.data_editor(
-            pd.DataFrame(p_state_active.get("orders", [])),
+            ord_df_in,
             use_container_width=True,
             num_rows="dynamic",
             key="mobile_ord_editor"
         )
         if st.button("💾 Tallenna Salkkumuutokset & Päivitä Kaikki 3 Drive-Dokumenttia", type="primary", use_container_width=True):
+            clean_positions = []
+            for row_p in edited_pos_df.to_dict(orient="records"):
+                tk_p = str(row_p.get("ticker") or "").strip()
+                if tk_p and tk_p != "nan" and float(row_p.get("shares") or 0.0) > 0:
+                    row_p["ticker"] = tk_p
+                    clean_positions.append(row_p)
+            clean_orders = []
+            for row_o in edited_ord_df.to_dict(orient="records"):
+                tk_o = str(row_o.get("ticker") or "").strip()
+                if tk_o and tk_o != "nan" and float(row_o.get("shares") or 0.0) > 0 and float(row_o.get("limit_price") or 0.0) > 0:
+                    row_o["ticker"] = tk_o
+                    row_o["action"] = str(row_o.get("action") or "SELL_LIMIT").strip()
+                    row_o["ccy"] = str(row_o.get("ccy") or "USD").strip()
+                    row_o["note"] = str(row_o.get("note") or "").strip()
+                    clean_orders.append(row_o)
             updated_state = {
                 **p_state_active,
                 "cash_ost_eur": round(float(new_cash_ost), 2),
                 "cash_aot_eur": round(float(new_cash_aot), 2),
                 "housing_reservation_eur": round(float(new_housing), 2),
-                "positions": edited_pos_df.to_dict(orient="records"),
-                "orders": edited_ord_df.to_dict(orient="records"),
+                "positions": clean_positions,
+                "orders": clean_orders,
             }
             st.session_state["portfolio_state"] = updated_state
             q_md2, n_md2, p_md2, p_meta2 = build_ai_triple_markdown_reports(
