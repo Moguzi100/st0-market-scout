@@ -1373,7 +1373,31 @@ def build_ai_portfolio_quant_report(now_str, macro_info, df, p_state=None):
     tot_eq_eur = round(tot_mkt_eur + cash_total, 2)
     ost_eq_eur = round(tot_mkt_eur + cash_ost, 2)
     for pr in pos_records:
-        pr["weight_pct"] = round((pr["val_eur"] / tot_eq_eur) * 100.0, 2) if tot_eq_eur > 0 else 0.0
+        w_pct = round((pr["val_eur"] / tot_eq_eur) * 100.0, 2) if tot_eq_eur > 0 else 0.0
+        pr["weight_pct"] = w_pct
+        b_pr = str(pr.get("bucket", "")).strip()
+        slv_pr = str(pr.get("sleeve", "")).strip()
+        qt_pr = str(pr.get("q_tier", "")).strip()
+        tier_pr = str(TICKERS.get(pr["ticker"], {}).get("tier", "")).strip()
+        sig_cur = str(pr.get("signal", "OK")).strip()
+        lrow_pr = live_map.get(pr["ticker"])
+        q_tila_pr = str(lrow_pr.get("Q-Tila", "")) if lrow_pr is not None else ""
+        is_q_soon = ("Q!" in sig_cur) or ("Q!" in q_tila_pr)
+        w_tags = []
+        if w_pct > 22.0:
+            w_tags.append("PAINO_YLI_22%_MAX")
+        elif (b_pr == "K1:Core" or slv_pr == "H3" or tier_pr == "CORE") and w_pct > 15.0:
+            w_tags.append("PAINO_YLI_15%")
+        if (b_pr == "K3:Beta" or qt_pr == "Q3") and w_pct > 8.5:
+            w_tags.append("K3_YLI_8.5%")
+        if is_q_soon and w_pct > 12.5:
+            w_tags.append("Q!_YLI_12.5%")
+        if w_tags:
+            tag_str = " ".join(w_tags)
+            pr["signal"] = tag_str if sig_cur == "OK" else f"{sig_cur} {tag_str}"
+            pr["_weight_cap_tags"] = w_tags
+        else:
+            pr["_weight_cap_tags"] = []
 
     unit_nav = tot_eq_eur / anchor_units if anchor_units > 0 else 0.0
     twr_pct = ((unit_nav / anchor_nav) - 1.0) * 100.0 if anchor_nav > 0 else 0.0
@@ -1437,10 +1461,19 @@ def build_ai_portfolio_quant_report(now_str, macro_info, df, p_state=None):
                 stale_bid_lines.append(
                     f"- {t} [STALE_BID]: Osto-alert {buy_al:.2f} {pr['ccy']} (-{gap_pct:.1f}% / {adr_mult:.2f}x ADR), pida puhelinhalytyksena"
                 )
+        if pr.get("_weight_cap_tags"):
+            tags_lbl = ", ".join(pr["_weight_cap_tags"])
+            alerts_list.append(
+                f"- {t} [WEIGHT_CAP_BREACH]: Paino {pr['weight_pct']:.2f}% ({tags_lbl}, ei lisaostoja)"
+            )
 
-    # Clean-Slate Top 3 (pl. TRIM-kohteet)
+    # Clean-Slate Top 3 (yhdenmukaistettu Doc 1 SPOT-4 _is_candidate-suodatuksella, pl. TRIM-kohteet)
+    cand_pool = [q for q in (quant_rows or []) if q.get("_is_candidate")]
+    if not cand_pool:
+        cand_pool = (quant_rows or [])[:6]
+    cand_pool = cand_pool[:10]
     clean_candidates = []
-    for q in (quant_rows or []):
+    for q in cand_pool:
         qt_sym = str(q.get("Ticker", "")).split("(")[0].strip()
         lrow = live_map.get(qt_sym)
         if lrow is not None and ("TRIM" in str(lrow.get("Signaali", "")) or float(lrow.get("RSI(14)", 50.0)) >= 68.0):
@@ -1481,6 +1514,14 @@ def build_ai_portfolio_quant_report(now_str, macro_info, df, p_state=None):
         rem_p = b_cp - bp
         st_lbl = "ALIPAINO" if (b_fl > 0 and bp < b_fl) else ("YLITETTY!" if bp > b_cp else "OK")
         p_md += f"- {bk}: {bv:.2f} EUR ({bp:.2f}% / katto {b_cp:.0f}%) | Vapaa: {rem_e:+.2f} EUR ({rem_p:+.2f} pp) [{st_lbl}]\n"
+        if b_fl > 0 and bp < b_fl:
+            alerts_list.append(
+                f"- {bk} [BUCKET_FLOOR_BREACH]: Paino {bp:.2f}% alle {b_fl:.0f}% lattian ({bp - b_fl:+.2f} pp)"
+            )
+        elif bp > b_cp:
+            alerts_list.append(
+                f"- {bk} [BUCKET_CAP_BREACH]: Paino {bp:.2f}% yli {b_cp:.0f}% katon ({bp - b_cp:+.2f} pp, OSTO-LUKKO)"
+            )
     p_md += (
         f"- HORISONTIT & 1R: H1 (2pv-4vk, AI 80/20, 1R {r1_h1}): {horizon_eur['H1']:.2f} EUR ({(horizon_eur['H1']/tot_eq_eur)*100:.2f}%) | "
         f"H2 (1-12kk, AI 50/50, 1R {r1_h2}): {horizon_eur['H2']:.2f} EUR ({(horizon_eur['H2']/tot_eq_eur)*100:.2f}%) | "
