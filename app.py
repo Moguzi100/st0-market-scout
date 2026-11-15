@@ -3,6 +3,9 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import requests
+import json
+import os
+import tempfile
 from datetime import datetime, timezone
 import pytz
 
@@ -125,25 +128,107 @@ def classify_rate_regime(us10y_info):
     return "RATE_CALM"
 
 def is_clean_headline(title):
-    if not title or len(title) < 15:
+    if not title or len(str(title).strip()) < 15:
         return False
-    t_low = title.lower()
+    t_low = str(title).lower()
     return not any(bad in t_low for bad in NOISE_PHRASES)
 
-def is_fresh_news(item, now_dt, max_hours=96.0):
+def clean_and_cap_title(title, max_chars=300):
+    clean = " ".join(str(title or "").split())
+    if len(clean) <= max_chars:
+        return clean
+    clipped = clean[: max_chars - 3]
+    if " " in clipped:
+        clipped = clipped.rsplit(" ", 1)[0]
+    return clipped.rstrip(".,;:- ") + "..."
+
+def extract_news_meta(item, now_dt):
+    """Palauttaa (pub_ts, age_h) vain jos uutisella on todennettu aikaleima. Aikaleimattomat hylätään (None)."""
+    if not isinstance(item, dict):
+        return None
+    content = item.get("content") if isinstance(item.get("content"), dict) else {}
+    pub_ts = item.get("providerPublishTime") or content.get("providerPublishTime")
+    if pub_ts is not None:
+        try:
+            ts_val = float(pub_ts)
+            if ts_val > 1e12:
+                ts_val /= 1000.0
+            age_h = (now_dt.timestamp() - ts_val) / 3600.0
+            if age_h >= -2.0:
+                return ts_val, age_h
+        except Exception:
+            pass
+    pub_str = (
+        content.get("pubDate")
+        or content.get("displayTime")
+        or item.get("pubDate")
+        or item.get("publishTime")
+    )
+    if pub_str:
+        try:
+            pub_dt = datetime.fromisoformat(str(pub_str).strip().replace("Z", "+00:00"))
+            if pub_dt.tzinfo is None:
+                pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+            ts_val = pub_dt.timestamp()
+            age_h = (now_dt.timestamp() - ts_val) / 3600.0
+            if age_h >= -2.0:
+                return ts_val, age_h
+        except Exception:
+            pass
+    return None
+
+def format_news_timestamp(pub_ts, now_dt, tz_fi, max_fresh_hours=None):
+    pub_dt_fi = datetime.fromtimestamp(float(pub_ts), tz=tz_fi)
+    age_h = max(0.0, (now_dt.timestamp() - float(pub_ts)) / 3600.0)
+    dt_str = pub_dt_fi.strftime("%d.%m. %H:%M EET")
+    if max_fresh_hours is not None and age_h > max_fresh_hours:
+        days = max(1, int(round(age_h / 24.0)))
+        age_str = f"{days}pv ARKISTO"
+    elif age_h < 1.0:
+        mins = max(1, int(round(age_h * 60.0)))
+        age_str = f"{mins}min"
+    elif age_h < 48.0:
+        age_str = f"{int(round(age_h))}h"
+    else:
+        days = max(2, int(round(age_h / 24.0)))
+        age_str = f"{int(round(age_h))}h / {days}pv"
+    return f"[{dt_str} | {age_str}]", age_h
+
+NEWS_CACHE_PATH = os.path.join(tempfile.gettempdir(), "st0_last_verified_news.json")
+
+@st.cache_resource
+def get_in_memory_news_store():
+    return {}
+
+def load_verified_news_cache():
+    mem_store = get_in_memory_news_store()
+    disk_store = {}
     try:
-        pub_ts = item.get("providerPublishTime")
-        if pub_ts:
-            age_h = (now_dt.timestamp() - float(pub_ts)) / 3600.0
-            return -2.0 <= age_h <= max_hours
-        pub_str = item.get("content", {}).get("pubDate") or item.get("content", {}).get("displayTime")
-        if pub_str:
-            pub_dt = datetime.fromisoformat(str(pub_str).replace("Z", "+00:00"))
-            age_h = (now_dt.astimezone(timezone.utc) - pub_dt.astimezone(timezone.utc)).total_seconds() / 3600.0
-            return -2.0 <= age_h <= max_hours
+        if os.path.exists(NEWS_CACHE_PATH):
+            with open(NEWS_CACHE_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    disk_store = data
     except Exception:
         pass
-    return True
+    merged = dict(disk_store)
+    for sym, entry in mem_store.items():
+        if isinstance(entry, dict) and float(entry.get("pub_ts", 0)) >= float(merged.get(sym, {}).get("pub_ts", 0)):
+            merged[sym] = entry
+    mem_store.update(merged)
+    return merged
+
+def save_verified_news_cache(cache_dict):
+    try:
+        mem_store = get_in_memory_news_store()
+        mem_store.update(cache_dict)
+    except Exception:
+        pass
+    try:
+        with open(NEWS_CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump(cache_dict, f, ensure_ascii=False)
+    except Exception:
+        pass
 
 @st.cache_data(ttl=120)
 def fetch_all_market_data():
@@ -210,50 +295,69 @@ def fetch_all_market_data():
     semi_spread = round(smh_chg_1d - spy_chg_1d, 2)
     macro_info["META_REGIME"] = {"rate_regime": rate_regime, "semi_spread": semi_spread}
 
-    # TUOREET MAKRO- & SEKTORIUUTISET (96h ikäraja)
+    # TUOREET MAKRO- & SEKTORIUUTISET (96h ikäraja, vain todennetut aikaleimat, uusimmat ensin)
+    macro_candidates = []
     for name in MACRO_NEWS_PRIORITY:
-        if len(macro_news) >= 3:
+        if len(macro_candidates) >= 3:
             break
         t_obj = macro_objs.get(name)
         if not t_obj:
             continue
         try:
             raw_m_news = t_obj.news or []
-            added_for_src = 0
-            for item in raw_m_news[:6]:
-                title = item.get("title") or item.get("content", {}).get("title", "")
-                if is_clean_headline(title) and is_fresh_news(item, now_dt, 96.0) and title not in seen_titles:
-                    seen_titles.add(title)
-                    macro_news.append(f"- MAKRO ({name}): {title[:115]}")
-                    added_for_src += 1
-                    if added_for_src >= 2 or len(macro_news) >= 3:
-                        break
+            src_dated = []
+            for item in raw_m_news[:8]:
+                title = clean_and_cap_title(item.get("title") or (item.get("content") or {}).get("title", ""), 300)
+                if not is_clean_headline(title) or title in seen_titles:
+                    continue
+                meta = extract_news_meta(item, now_dt)
+                if meta is not None and meta[1] <= 96.0:
+                    src_dated.append((meta[0], meta[1], title))
+            src_dated.sort(key=lambda x: x[1])
+            for pub_ts, age_h, title in src_dated[:2]:
+                if len(macro_candidates) >= 3 or title in seen_titles:
+                    break
+                seen_titles.add(title)
+                ts_tag, _ = format_news_timestamp(pub_ts, now_dt, tz_fi, max_fresh_hours=96.0)
+                macro_candidates.append((age_h, f"- MAKRO ({name}) {ts_tag}: {title}"))
         except Exception:
             pass
+    macro_candidates.sort(key=lambda x: x[0])
+    macro_news = [entry[1] for entry in macro_candidates]
 
+    sector_candidates = []
     for name in SECTOR_NEWS_PRIORITY:
-        if len(sector_news) >= 3:
+        if len(sector_candidates) >= 3:
             break
         t_obj = macro_objs.get(name)
         if not t_obj:
             continue
         try:
             raw_s_news = t_obj.news or []
-            added_for_src = 0
-            for item in raw_s_news[:6]:
-                title = item.get("title") or item.get("content", {}).get("title", "")
-                if is_clean_headline(title) and is_fresh_news(item, now_dt, 96.0) and title not in seen_titles:
-                    seen_titles.add(title)
-                    sector_news.append(f"- SEKTORI ({name}): {title[:115]}")
-                    added_for_src += 1
-                    if added_for_src >= 2 or len(sector_news) >= 3:
-                        break
+            src_dated = []
+            for item in raw_s_news[:8]:
+                title = clean_and_cap_title(item.get("title") or (item.get("content") or {}).get("title", ""), 300)
+                if not is_clean_headline(title) or title in seen_titles:
+                    continue
+                meta = extract_news_meta(item, now_dt)
+                if meta is not None and meta[1] <= 96.0:
+                    src_dated.append((meta[0], meta[1], title))
+            src_dated.sort(key=lambda x: x[1])
+            for pub_ts, age_h, title in src_dated[:2]:
+                if len(sector_candidates) >= 3 or title in seen_titles:
+                    break
+                seen_titles.add(title)
+                ts_tag, _ = format_news_timestamp(pub_ts, now_dt, tz_fi, max_fresh_hours=96.0)
+                sector_candidates.append((age_h, f"- SEKTORI ({name}) {ts_tag}: {title}"))
         except Exception:
             pass
+    sector_candidates.sort(key=lambda x: x[0])
+    sector_news = [entry[1] for entry in sector_candidates]
 
     # 2. YHTIÖDATA + TASELUOKITUS + KORJATTU F:P/E + U-CURVE pRVOL
     rows = []
-    company_news = []
+    company_news_candidates = []
+    verified_news_cache = load_verified_news_cache()
 
     for sym, cfg in TICKERS.items():
         try:
@@ -608,27 +712,46 @@ def fetch_all_market_data():
             })
 
             try:
-                raw_news = t.news
-                if raw_news:
-                    keywords = cfg.get("kw", [sym.lower()])
-                    max_news_age_h = 336.0 if ".HE" in used_yf else 168.0
-                    matched_title = None
-                    for item in raw_news[:8]:
-                        title = item.get("title") or item.get("content", {}).get("title", "")
-                        if is_clean_headline(title) and is_fresh_news(item, now_dt, max_news_age_h) and title not in seen_titles:
-                            t_low = title.lower()
-                            if any(k in t_low for k in keywords):
-                                matched_title = title
-                                break
-                    if matched_title:
-                        seen_titles.add(matched_title)
-                        company_news.append(f"- **{sym}:** {matched_title[:115]}")
+                raw_news = t.news or []
+                keywords = cfg.get("kw", [sym.lower()])
+                max_news_age_h = 336.0 if ".HE" in used_yf else 168.0
+                dated_matches = []
+                for item in raw_news[:10]:
+                    raw_title = item.get("title") or (item.get("content") or {}).get("title", "")
+                    title = clean_and_cap_title(raw_title, 300)
+                    if not is_clean_headline(title) or title in seen_titles:
+                        continue
+                    t_low = title.lower()
+                    if not any(k in t_low for k in keywords):
+                        continue
+                    meta = extract_news_meta(item, now_dt)
+                    if meta is not None:
+                        dated_matches.append((meta[0], title))
+
+                cached_item = verified_news_cache.get(sym)
+                if isinstance(cached_item, dict) and cached_item.get("title") and cached_item.get("pub_ts"):
+                    c_title = clean_and_cap_title(cached_item.get("title"), 300)
+                    c_ts = float(cached_item.get("pub_ts"))
+                    if is_clean_headline(c_title) and c_title not in seen_titles:
+                        dated_matches.append((c_ts, c_title))
+
+                if dated_matches:
+                    # Uusin todennettu aikaleimallinen uutinen voittaa aina; edellistä ei ylikirjoiteta aikaleimattomalla
+                    dated_matches.sort(key=lambda x: x[0], reverse=True)
+                    best_ts, best_title = dated_matches[0]
+                    seen_titles.add(best_title)
+                    verified_news_cache[sym] = {"title": best_title, "pub_ts": best_ts}
+                    ts_tag, age_h = format_news_timestamp(best_ts, now_dt, tz_fi, max_fresh_hours=max_news_age_h)
+                    company_news_candidates.append((age_h, f"- **{sym}** {ts_tag}: {best_title}"))
             except Exception:
                 pass
 
         except Exception:
             continue
 
+    save_verified_news_cache(verified_news_cache)
+    company_news_candidates.sort(key=lambda x: x[0])
+    company_news = [entry[1] for entry in company_news_candidates]
     df = pd.DataFrame(rows)
     return now_str, macro_info, df, macro_news, sector_news, company_news
 
@@ -696,7 +819,7 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
     md += format_ai_md_table(inactive_df)
 
     if company_news:
-        md += "## 3. YHTIOKOHTAISET UUTISET (24H)\n"
+        md += "## 3. YHTIOKOHTAISET UUTISET (TODENNETUT AIKALEIMAT, TUOREIMMAT ENSIN)\n"
         clean_c_news = [cn.replace("**", "") for cn in company_news[:21]]
         md += "\n".join(clean_c_news) + "\n"
 
