@@ -13,7 +13,7 @@ import pytz
 # SIVUN ASETUKSET
 # ==========================================
 st.set_page_config(
-    page_title="ST0 Market Scout v3.6 Quant",
+    page_title="ST0 Market Scout v3.7 Triple-Doc Cloud Quant",
     page_icon="📡",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -1140,6 +1140,472 @@ def build_ai_markdown_report(now_str, macro_info, df, macro_news, sector_news, c
     return q_md
 
 # ==========================================
+# ALGORITMI E (PILVI): SALKKU-, UNIT-NAV-, HÄLYTYS- JA HORIZON-SHIFT-LASKURI (DOC 3: ST0_LIVE_PORTFOLIO_QUANT)
+# ==========================================
+DEFAULT_PORTFOLIO_STATE = {
+    "cash_ost_eur": 8797.12,
+    "cash_aot_eur": 10.00,
+    "housing_reservation_eur": 4000.00,
+    "tied_buy_orders_eur": 0.00,
+    "ost_cumulative_pnl_eur": -3975.71,
+    "baseline_nov01_eur": 45763.73,
+    "anchor_equity_eur": 45224.25,
+    "anchor_unit_nav_eur": 45.22425,
+    "anchor_total_units": 1000.000,
+    "positions": [
+        {"ticker": "GOOG",    "account": "OST", "bucket": "K1:Core",  "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 27.0,  "avg_price": 308.77, "lower_alert": 272.00, "buy_alert": 275.00, "trim_target": "Hold H3 (HOT P/E yli 28x)", "kill": "Search-kasvu negatiivinen tai OpM alle 26%"},
+        {"ticker": "AMZN",    "account": "OST", "bucket": "K1:Core",  "bs": "SELF", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 16.0,  "avg_price": 260.17, "lower_alert": 255.00, "buy_alert": 256.94, "trim_target": "Hold H3 (HOT P/E yli 35x)", "kill": "AWS-kasvu alle 12% tai OpM alle 10%"},
+        {"ticker": "AVGO",    "account": "OST", "bucket": "K2:Semi",  "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 18.0,  "avg_price": 354.66, "lower_alert": 296.31, "buy_alert": 299.64, "trim_target": "Hold H3 (HOT P/E yli 38x)", "kill": "XPU-sopimusmenetys tai OpM alle 40%"},
+        {"ticker": "TSM",     "account": "OST", "bucket": "K2:Semi",  "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 12.0,  "avg_price": 364.88, "lower_alert": 365.49, "buy_alert": 370.00, "trim_target": "Hold H3 (HOT P/E yli 28x)", "kill": "Kuukausimyynti alle +20% YoY tai Taiwan-eskalaatio"},
+        {"ticker": "NVDA",    "account": "OST", "bucket": "K2:Semi",  "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 20.0,  "avg_price": 177.91, "lower_alert": 158.49, "buy_alert": 160.39, "trim_target": "200-240 USD (H1-erä 178.14 USD)", "kill": "DC-bruttokate alle 70% tai Q3-ohjeistuspettymys"},
+        {"ticker": "MU",      "account": "OST", "bucket": "K2:Semi",  "bs": "FORT", "q_tier": "Q2", "sleeve": "H2", "shift_ok": False, "ccy": "USD", "shares": 3.0,   "avg_price": 867.08, "lower_alert": 725.00, "buy_alert": 665.00, "trim_target": "865-910 USD (100% exit RSI yli 68)", "kill": "HBM-hinnat laskuun tai SMA200 murtuma pRVOL yli 1.5x"},
+        {"ticker": "ASML",    "account": "OST", "bucket": "K2:Semi",  "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "USD", "shares": 1.0,   "avg_price": 1013.80, "lower_alert": 1384.96, "buy_alert": 1415.00, "trim_target": "Ei myyntikattoa (alipaino 2.93%)", "kill": "Tilauskertymä alle 2.5 mrd EUR kahdesti"},
+        {"ticker": "SPCX",    "account": "OST", "bucket": "K3:Beta",  "bs": "DEBT", "q_tier": "Q3", "sleeve": "H1", "shift_ok": False, "ccy": "USD", "shares": 29.0,  "avg_price": 138.08, "lower_alert": 135.00, "buy_alert": 0.00,   "trim_target": "140.69-147.30 USD (tai vaihto ANT IPO)", "kill": "Starship-lentokielto tai BB-Low 127.09 murtuma"},
+        {"ticker": "MSTR",    "account": "OST", "bucket": "K3:Beta",  "bs": "DEBT", "q_tier": "Q3", "sleeve": "H1", "shift_ok": False, "ccy": "USD", "shares": 16.0,  "avg_price": 139.55, "lower_alert": 108.25, "buy_alert": 0.00,   "trim_target": "116.00-120.95 USD (2/2 strikes exit)", "kill": "BTC viikkopäätös alle 72k USD + MSCI 30.11. poisto (2/2)"},
+        {"ticker": "WRT1V",   "account": "OST", "bucket": "K4:Suomi", "bs": "FORT", "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,  "ccy": "EUR", "shares": 106.0, "avg_price": 27.36,  "lower_alert": 24.51,  "buy_alert": 24.80,  "trim_target": "29.50-31.00 EUR (HOT P/E yli 22.5x)", "kill": "Tilauskertymän lasku 2 kvartaalia tai alle 24.51 EUR"},
+        {"ticker": "FRAMERY", "account": "OST", "bucket": "K4:Suomi", "bs": "SELF", "q_tier": "Q2", "sleeve": "H2", "shift_ok": False, "ccy": "EUR", "shares": 230.0, "avg_price": 8.69,   "lower_alert": 6.79,   "buy_alert": 6.86,   "trim_target": "7.90-7.95 EUR (RSI 71.5 yliostettu)", "kill": "Putoaminen takaisin alle SMA200 6.79 EUR"}
+    ],
+    "orders": [
+        {"ticker": "FRAMERY", "action": "SELL_LIMIT_OMXH_MA_0945", "shares": 230.0, "limit_price": 7.95,   "ccy": "EUR", "note": "Uusitaan ma 16.11. klo 09:45 (RSI 71.5 TRIM)"},
+        {"ticker": "SPCX",    "action": "SELL_LIMIT_US_EXT_1100",  "shares": 29.0,  "limit_price": 140.69, "ccy": "USD", "note": "Dyn Trim -0.25x ADR (vapautus kohti ANT IPO)"},
+        {"ticker": "MSTR",    "action": "SELL_LIMIT_2OF2_EXIT",    "shares": 16.0,  "limit_price": 120.95, "ccy": "USD", "note": "2/2 strikes exit pomppuun (suoja 108.25 USD)"}
+    ]
+}
+
+def calc_one_way_nordnet_sell_eur(shares, price, ccy, eur_usd):
+    if ccy == "EUR":
+        gross = round(float(shares) * float(price), 2)
+        fee = round(max(5.0, gross * 0.001), 2)
+        return gross, fee, round(gross - fee, 2)
+    gross = round((float(shares) * float(price)) / float(eur_usd), 2)
+    fee = round(15.0 + gross * 0.0025, 2)
+    return gross, fee, round(gross - fee, 2)
+
+def extract_portfolio_state_from_doc3_text(doc3_text):
+    if not doc3_text or "PORTFOLIO_STATE_JSON:" not in doc3_text:
+        return None
+    try:
+        after = doc3_text.split("PORTFOLIO_STATE_JSON:", 1)[1]
+        for line in after.splitlines():
+            s = line.strip()
+            if s.startswith("{") and s.endswith("}"):
+                raw = json.loads(s)
+                if "positions" in raw:
+                    return raw
+                # Laajenna tiivis muoto ("p" ja "o") täydeksi tilaksi
+                base = json.loads(json.dumps(DEFAULT_PORTFOLIO_STATE))
+                base["cash_ost_eur"] = float(raw.get("c_ost", base["cash_ost_eur"]))
+                base["cash_aot_eur"] = float(raw.get("c_aot", base["cash_aot_eur"]))
+                base["housing_reservation_eur"] = float(raw.get("h_res", base["housing_reservation_eur"]))
+                base["tied_buy_orders_eur"] = float(raw.get("t_buy", base["tied_buy_orders_eur"]))
+                default_by_t = {x["ticker"]: x for x in base["positions"]}
+                if "p" in raw and isinstance(raw["p"], list):
+                    new_pos = []
+                    for item in raw["p"]:
+                        tk = str(item[0])
+                        tmpl = dict(default_by_t.get(tk, {
+                            "ticker": tk, "account": "OST", "bucket": "K1:Core", "bs": "FORT",
+                            "q_tier": "Q1", "sleeve": "H3", "shift_ok": True,
+                            "ccy": "EUR" if tk in ("WRT1V", "FRAMERY", "NOKIA") else "USD",
+                            "trim_target": "-", "kill": "-"
+                        }))
+                        tmpl["shares"] = float(item[1])
+                        tmpl["avg_price"] = float(item[2])
+                        tmpl["sleeve"] = str(item[3])
+                        tmpl["lower_alert"] = float(item[4])
+                        tmpl["buy_alert"] = float(item[5])
+                        new_pos.append(tmpl)
+                    base["positions"] = new_pos
+                if "o" in raw and isinstance(raw["o"], list):
+                    base["orders"] = [
+                        {"ticker": str(x[0]), "action": str(x[1]), "shares": float(x[2]), "limit_price": float(x[3]), "ccy": str(x[4]), "note": ""}
+                        for x in raw["o"]
+                    ]
+                return base
+    except Exception:
+        return None
+    return None
+
+def load_cloud_portfolio_state(webhook_url):
+    if "portfolio_state" in st.session_state and isinstance(st.session_state["portfolio_state"], dict):
+        return st.session_state["portfolio_state"]
+    loaded_state = None
+    if webhook_url:
+        try:
+            resp = requests.post(webhook_url, json={"action": "get_portfolio_state"}, timeout=6)
+            if resp.status_code == 200:
+                data = resp.json()
+                raw_json = data.get("portfolio_state_json", "")
+                if raw_json:
+                    loaded_state = json.loads(raw_json) if isinstance(raw_json, str) else raw_json
+                elif data.get("doc3_text"):
+                    loaded_state = extract_portfolio_state_from_doc3_text(data.get("doc3_text", ""))
+        except Exception:
+            loaded_state = None
+    if not isinstance(loaded_state, dict) or "positions" not in loaded_state:
+        loaded_state = json.loads(json.dumps(DEFAULT_PORTFOLIO_STATE))
+    st.session_state["portfolio_state"] = loaded_state
+    return loaded_state
+
+def build_ai_portfolio_quant_report(now_str, macro_info, df, p_state=None):
+    """Algoritmi E pilvessä: tuottaa Doc 3 (ST0_LIVE_PORTFOLIO_QUANT) tekstin (alle 7 500 merkkiä, SYNTAX_LOCK_CLEAN) ja UI-metriikat."""
+    if not isinstance(p_state, dict) or "positions" not in p_state:
+        p_state = json.loads(json.dumps(DEFAULT_PORTFOLIO_STATE))
+
+    fx_val = float((macro_info.get("EURUSD") or {}).get("price", 1.103)) or 1.103
+    meta_r = macro_info.get("META_REGIME", {})
+    rate_reg = meta_r.get("rate_regime", "RATE_ELEVATED")
+    clock_str = meta_r.get("clock_status", "-")
+    quant_rows = macro_info.get("QUANT_ROWS", [])
+
+    live_map = {}
+    if df is not None and not df.empty:
+        for _, r in df.iterrows():
+            sym_k = str(r.get("_sym") or r.get("Ticker") or "").split("(")[0].strip()
+            live_map[sym_k] = r
+
+    spot4_map = {str(q.get("Ticker", "")).split("(")[0].strip(): q for q in (quant_rows or [])}
+
+    cash_ost = float(p_state.get("cash_ost_eur", 8797.12))
+    cash_aot = float(p_state.get("cash_aot_eur", 10.00))
+    cash_total = round(cash_ost + cash_aot, 2)
+    housing_res = float(p_state.get("housing_reservation_eur", 4000.00))
+    tied_buys = float(p_state.get("tied_buy_orders_eur", 0.00))
+    free_dry_powder = round(cash_total - housing_res - tied_buys, 2)
+    ost_cum_pnl = float(p_state.get("ost_cumulative_pnl_eur", -3975.71))
+    base_nov01 = float(p_state.get("baseline_nov01_eur", 45763.73))
+    anchor_eq = float(p_state.get("anchor_equity_eur", 45224.25))
+    anchor_nav = float(p_state.get("anchor_unit_nav_eur", 45.22425))
+    anchor_units = float(p_state.get("anchor_total_units", 1000.0))
+
+    pos_records = []
+    tot_mkt_eur = 0.0
+    tot_open_pnl_eur = 0.0
+    bucket_eur = {"K1:Core": 0.0, "K2:Semi": 0.0, "K3:Beta": 0.0, "K4:Suomi": 0.0}
+    horizon_eur = {"H1": 0.0, "H2": 0.0, "H3": 0.0}
+
+    for pos in p_state.get("positions", []):
+        t = str(pos.get("ticker", "")).strip()
+        sh = float(pos.get("shares", 0.0))
+        if sh <= 0:
+            continue
+        avg_p = float(pos.get("avg_price", 0.0))
+        ccy = str(pos.get("ccy", "USD")).strip()
+        b_col = str(pos.get("bucket", "K1:Core")).strip()
+        bs = str(pos.get("bs", "FORT")).strip()
+        qt = str(pos.get("q_tier", "Q1")).strip()
+        slv = str(pos.get("sleeve", "H3")).strip()
+        shift_ok = bool(pos.get("shift_ok", qt == "Q1"))
+
+        lrow = live_map.get(t)
+        if lrow is not None:
+            cur_p = float(lrow.get("Hinta", avg_p))
+            chg_1d = float(lrow.get("Muutos %", 0.0))
+            day_lh = str(lrow.get("Day Low-High", f"{cur_p:.2f}-{cur_p:.2f}"))
+            lh_parts = day_lh.split("-")
+            d_low = float(lh_parts[0]) if len(lh_parts) == 2 else cur_p
+            rsi_v = float(lrow.get("RSI(14)", 50.0))
+            prvol_v = float(lrow.get("pRVOL_num", 1.0))
+            sma200_v = float(lrow.get("SMA200%", 0.0))
+            adr_v = float(lrow.get("ADR%", 3.5))
+            val_str = str(lrow.get("Arvostus", "-"))
+            sup_str = str(lrow.get("Dyn Tuki", "-"))
+            sup_p = float(sup_str.split("(")[0]) if "(" in sup_str else cur_p
+            trim_str = str(lrow.get("Dyn Trim", "-"))
+            trim_p = float(trim_str.split("(")[0]) if "(" in trim_str else cur_p
+            sig_str = str(lrow.get("Signaali", "OK"))
+            dd_str = "HIGH" if bool(lrow.get("_has_fresh_24h_news", True)) else "LOW_HUMAN_EDGE"
+        else:
+            cur_p = avg_p
+            chg_1d = 0.0
+            day_lh = f"{cur_p:.2f}-{cur_p:.2f}"
+            d_low = cur_p
+            rsi_v = 50.0
+            prvol_v = 1.0
+            sma200_v = 0.0
+            adr_v = 3.5
+            val_str = "-"
+            sup_str = "-"
+            sup_p = cur_p
+            trim_str = "-"
+            trim_p = cur_p
+            sig_str = "OK"
+            dd_str = "HIGH"
+
+        fx_div = 1.0 if ccy == "EUR" else fx_val
+        val_e = (sh * cur_p) / fx_div
+        pnl_e = ((cur_p - avg_p) * sh) / fx_div
+        pnl_p = ((cur_p / avg_p) - 1.0) * 100.0 if avg_p > 0 else 0.0
+        dist_sup = ((cur_p / sup_p) - 1.0) * 100.0 if sup_p > 0 else 0.0
+
+        tot_mkt_eur += val_e
+        tot_open_pnl_eur += pnl_e
+        if b_col in bucket_eur:
+            bucket_eur[b_col] += val_e
+        if slv in horizon_eur:
+            horizon_eur[slv] += val_e
+
+        pos_records.append({
+            **pos,
+            "has_live": lrow is not None,
+            "live_price": cur_p,
+            "chg_1d": chg_1d,
+            "day_lh": day_lh,
+            "day_low": d_low,
+            "rsi": rsi_v,
+            "prvol": prvol_v,
+            "sma200_pct": sma200_v,
+            "adr_pct": adr_v,
+            "val_dna": val_str,
+            "sup_str": sup_str,
+            "sup_price": sup_p,
+            "dist_sup_pct": dist_sup,
+            "trim_str": trim_str,
+            "trim_price": trim_p,
+            "signal": sig_str,
+            "data_density": dd_str,
+            "val_eur": val_e,
+            "pnl_eur": pnl_e,
+            "pnl_pct": pnl_p,
+            "shift_ok": shift_ok,
+        })
+
+    tot_eq_eur = round(tot_mkt_eur + cash_total, 2)
+    ost_eq_eur = round(tot_mkt_eur + cash_ost, 2)
+    for pr in pos_records:
+        pr["weight_pct"] = round((pr["val_eur"] / tot_eq_eur) * 100.0, 2) if tot_eq_eur > 0 else 0.0
+
+    unit_nav = tot_eq_eur / anchor_units if anchor_units > 0 else 0.0
+    twr_pct = ((unit_nav / anchor_nav) - 1.0) * 100.0 if anchor_nav > 0 else 0.0
+    nov01_pct = ((tot_eq_eur / base_nov01) - 1.0) * 100.0 if base_nov01 > 0 else 0.0
+    units_redeemed = housing_res / unit_nav if unit_nav > 0 else 0.0
+    rem_units = anchor_units - units_redeemed
+
+    # Hälytykset, myyntijono, Exit Drift ja Stale-Bid
+    alerts_list = []
+    sell_queue_lines = []
+    stale_bid_lines = []
+    pending_sells_net_eur = 0.0
+    pos_by_t = {pr["ticker"]: pr for pr in pos_records}
+
+    for o in p_state.get("orders", []):
+        ot = str(o.get("ticker", "")).strip()
+        osh = float(o.get("shares", 0.0))
+        olp = float(o.get("limit_price", 0.0))
+        occy = str(o.get("ccy", "USD")).strip()
+        if osh > 0 and olp > 0:
+            g_e, f_e, n_e = calc_one_way_nordnet_sell_eur(osh, olp, occy, fx_val)
+            pending_sells_net_eur = round(pending_sells_net_eur + n_e, 2)
+            pr_match = pos_by_t.get(ot)
+            drift_tag = "EXIT_OK"
+            if pr_match and pr_match["trim_price"] > 0:
+                diff_vs_trim = ((olp / pr_match["trim_price"]) - 1.0) * 100.0
+                if olp > pr_match["trim_price"] * 1.001:
+                    drift_tag = f"EXIT_DRIFT (+{diff_vs_trim:.1f}% yli {pr_match['trim_str']})"
+                else:
+                    drift_tag = f"EXIT_OK ({diff_vs_trim:+.1f}% vs {pr_match['trim_str']})"
+            sell_queue_lines.append(
+                f"- MYYNTI {ot} ({int(osh)} kpl @ {olp:.2f} {occy}): {g_e:.2f} - kulu {f_e:.2f} = +{n_e:.2f} EUR netto [{drift_tag}]"
+            )
+
+    for pr in pos_records:
+        t = pr["ticker"]
+        lp = pr["live_price"]
+        dl = pr["day_low"]
+        low_al = float(pr.get("lower_alert", 0.0) or 0.0)
+        buy_al = float(pr.get("buy_alert", 0.0) or 0.0)
+        if pr.get("has_live") and pr["sup_price"] > 0 and (dl <= pr["sup_price"] * 1.005 or pr["dist_sup_pct"] <= 1.6):
+            alerts_list.append(
+                f"- {t} [SUPPORT_TEST]: Live {lp:.2f} {pr['ccy']} (Low {dl:.2f}) tuki {pr['sup_str']} ({pr['dist_sup_pct']:+.2f}%, RSI {pr['rsi']:.1f}, pRVOL {pr['prvol']:.2f}x)"
+            )
+        if pr.get("has_live") and -1.5 <= pr["sma200_pct"] <= 1.0:
+            alerts_list.append(
+                f"- {t} [SMA200_TEST]: Live {lp:.2f} {pr['ccy']} SMA200-tasolla ({pr['sma200_pct']:+.1f}%, pRVOL {pr['prvol']:.2f}x)"
+            )
+        if low_al > 0 and (dl <= low_al or lp <= low_al * 1.012):
+            alerts_list.append(
+                f"- {t} [LOWER_ALERT_HIT]: Low {dl:.2f} / Live {lp:.2f} {pr['ccy']} vs alahalytys {low_al:.2f} {pr['ccy']}"
+            )
+        if pr["rsi"] >= 68.0 or "TRIM" in pr["signal"]:
+            alerts_list.append(
+                f"- {t} [OVERBOUGHT_TRIM]: RSI {pr['rsi']:.1f} ({pr['signal']}), kotiuta vastukseen ({pr.get('trim_target', pr['trim_str'])})"
+            )
+        if buy_al > 0 and pr["adr_pct"] > 0:
+            gap_pct = ((lp - buy_al) / lp) * 100.0
+            adr_mult = gap_pct / pr["adr_pct"]
+            if adr_mult > 2.0:
+                stale_bid_lines.append(
+                    f"- {t} [STALE_BID]: Osto-alert {buy_al:.2f} {pr['ccy']} (-{gap_pct:.1f}% / {adr_mult:.2f}x ADR), pida puhelinhalytyksena"
+                )
+
+    # Clean-Slate Top 3 (pl. TRIM-kohteet)
+    clean_candidates = []
+    for q in (quant_rows or []):
+        qt_sym = str(q.get("Ticker", "")).split("(")[0].strip()
+        lrow = live_map.get(qt_sym)
+        if lrow is not None and ("TRIM" in str(lrow.get("Signaali", "")) or float(lrow.get("RSI(14)", 50.0)) >= 68.0):
+            continue
+        ev_str = str(q.get("EV_Str", "0%/+0e"))
+        ev_val = float(ev_str.split("/")[1].replace("e", "").replace("+", "")) if "/" in ev_str else 0.0
+        clean_candidates.append((ev_val, qt_sym, q))
+    clean_candidates.sort(key=lambda x: x[0], reverse=True)
+    top3_cs_str = ", ".join(
+        f"{sym} ({q.get('EV_Str', '+0e')}, R:R {q.get('RR_Days_Str', '-')} @ {str(q.get('Buy_Limit_Str', '-')).split('(')[0]})"
+        for _, sym, q in clean_candidates[:3]
+    ) or "AVGO (+239e)"
+    best_cs_sym = clean_candidates[0][1] if clean_candidates else "AVGO"
+    best_cs_ev = clean_candidates[0][0] if clean_candidates else 239.0
+
+    # Rakenna Doc 3 Markdown (SYNTAX_LOCK_CLEAN: ei $, ~, <, > merkkejä!)
+    r1_h1 = f"{round(tot_eq_eur*0.008)}-{round(tot_eq_eur*0.012)} EUR"
+    r1_h2 = f"{round(tot_eq_eur*0.012)}-{round(tot_eq_eur*0.020)} EUR"
+    r1_h3 = f"{round(tot_eq_eur*0.020)}-{round(tot_eq_eur*0.035)} EUR"
+
+    p_md = "# ST0_LIVE_PORTFOLIO_QUANT — ALGORITMI E (v3.7 TRIPLE-DOC — APEX v7.1.0)\n"
+    p_md += f"AIKALEIMA: {now_str} | EUR/USD: {fx_val:.3f} | KORKO & KELLO: {rate_reg} | {clock_str}\n"
+
+    p_md += "## 1. LIVE-SALKKU, OST+AOT KASSA, UNIT-NAV TWR% & ASUNTOVARAUS\n"
+    p_md += f"- KOKONAISPAAOMA: {tot_eq_eur:.2f} EUR (OST {ost_eq_eur:.2f} + AOT {cash_aot:.2f} | 01.11. {base_nov01:.2f} EUR, {nov01_pct:+.2f}%)\n"
+    p_md += f"- OSAKKEET ({len(pos_records)} rivia): {tot_mkt_eur:.2f} EUR ({(tot_mkt_eur/tot_eq_eur)*100:.2f}%) | Avoin PnL: {tot_open_pnl_eur:+.2f} EUR | OST kumul. PnL: {ost_cum_pnl:+.2f} EUR (100% verovapaa nosto)\n"
+    p_md += f"- KASSA: {cash_total:.2f} EUR ({(cash_total/tot_eq_eur)*100:.2f}%) | Asuntovaraus: {housing_res:.2f} EUR | Ostopilkit: {tied_buys:.2f} EUR | DRY POWDER: {free_dry_powder:.2f} EUR ({(free_dry_powder/tot_eq_eur)*100:.2f}%)\n"
+    p_md += f"- UNIT-NAV & TWR%: {unit_nav:.5f} EUR/osuus ({twr_pct:+.2f}% yli 09.11. ankkurin {anchor_nav:.5f} EUR / {anchor_units:.1f} osuutta)\n"
+    p_md += f"- ASUNTOVARAUS (4000 EUR): A) Nosto lunastaa {units_redeemed:.3f} osuutta (jaa {rem_units:.3f} osuutta, NAV {unit_nav:.5f} EUR = 0.00% TWR-vaaristymä) | B) Vapautus nostaa vapaan kassan {cash_total:.2f} EUR\n"
+    p_md += f"- MYYNTIJONON NETTO: +{pending_sells_net_eur:.2f} EUR netto (vapaa kassa {free_dry_powder + pending_sells_net_eur:.2f} EUR / B: {cash_total + pending_sells_net_eur:.2f} EUR ke 18.11. ANT OST-IPOon)\n"
+
+    p_md += "## 2. 4-KORIN (K1-K4) VAPAA KAPASITEETTI & 3-HORISONTIN (H1-H3) 1R-BUDJETIT\n"
+    b_caps = [("K1:Core", 25.0, 40.0), ("K2:Semi", 30.0, 42.0), ("K3:Beta", 0.0, 18.0), ("K4:Suomi", 8.0, 20.0)]
+    for bk, b_fl, b_cp in b_caps:
+        bv = bucket_eur.get(bk, 0.0)
+        bp = (bv / tot_eq_eur) * 100.0 if tot_eq_eur > 0 else 0.0
+        rem_e = (tot_eq_eur * (b_cp / 100.0)) - bv
+        rem_p = b_cp - bp
+        st_lbl = "ALIPAINO" if (b_fl > 0 and bp < b_fl) else ("YLITETTY!" if bp > b_cp else "OK")
+        p_md += f"- {bk}: {bv:.2f} EUR ({bp:.2f}% / katto {b_cp:.0f}%) | Vapaa: {rem_e:+.2f} EUR ({rem_p:+.2f} pp) [{st_lbl}]\n"
+    p_md += (
+        f"- HORISONTIT & 1R: H1 (2pv-4vk, AI 80/20, 1R {r1_h1}): {horizon_eur['H1']:.2f} EUR ({(horizon_eur['H1']/tot_eq_eur)*100:.2f}%) | "
+        f"H2 (1-12kk, AI 50/50, 1R {r1_h2}): {horizon_eur['H2']:.2f} EUR ({(horizon_eur['H2']/tot_eq_eur)*100:.2f}%) | "
+        f"H3 (1-5v, Human 65/35, 1R {r1_h3}): {horizon_eur['H3']:.2f} EUR ({(horizon_eur['H3']/tot_eq_eur)*100:.2f}%)\n"
+    )
+
+    p_md += "## 3. 11 AKTIIVISEN SALKKUPOSITION REAALIAIKAINEN MATRIISI\n"
+    p_md += "|Ticker|Tase:Q:H|Kpl|Kh|Live(1d%)|ArvoEUR(Paino%)|PnLEUR(%)|Arvostus|RSI/pRVOL|Tuki(Et.)|DynTrim|Data|Signaali|\n"
+    p_md += "|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+    for pr in pos_records:
+        p_md += (
+            f"|{pr['ticker']}|{pr['bs']}:{pr['q_tier']}:{pr['sleeve']}|{int(pr['shares'])}|{pr['avg_price']:.2f}|"
+            f"{pr['live_price']:.2f} {pr['ccy']}({pr['chg_1d']:+.2f}%)|{pr['val_eur']:.0f}e({pr['weight_pct']:.2f}%)|"
+            f"{pr['pnl_eur']:+.0f}e({pr['pnl_pct']:+.2f}%)|{pr['val_dna']}|{pr['rsi']:.1f}/{pr['prvol']:.2f}x|"
+            f"{pr['sup_str']}({pr['dist_sup_pct']:+.1f}%)|{pr['trim_str']}|{pr['data_density']}|{pr['signal']}|\n"
+        )
+
+    p_md += "## 4. LAUENNEET KURSSIHALYTYKSET, 1-SUUNNAN MYYNTIJONO, EXIT DRIFT & STALE-BID\n"
+    for al in alerts_list:
+        p_md += f"{al}\n"
+    for sq in sell_queue_lines:
+        p_md += f"{sq}\n"
+    for sb in stale_bid_lines:
+        p_md += f"{sb}\n"
+
+    p_md += "## 5. TAPPIOLLISTEN RIVIEN 4-PORTTINEN HORIZON_SHIFT_GATE & CLEAN-SLATE TESTI\n"
+    p_md += f"- CLEAN-SLATE TOP 3 (SPOT-4): {top3_cs_str}\n"
+    losing_recs = sorted([pr for pr in pos_records if pr["pnl_eur"] < 0], key=lambda x: x["pnl_eur"])
+    for lr in losing_recs:
+        lt = lr["ticker"]
+        lqt = lr["q_tier"]
+        lsl = lr["sleeve"]
+        s4_item = spot4_map.get(lt)
+        own_ev_str = s4_item.get("EV_Str", "-") if s4_item else "ei H1-sign."
+        if lqt == "Q3" or (not lr["shift_ok"] and lsl == "H1"):
+            verdict = "KIELLETTY(Ulysses_Q3_DEBT_H1)"
+        elif lqt == "Q2" and lsl == "H2":
+            verdict = "EI_SIIRTOA_H3(Q2_raja_H2)"
+        else:
+            verdict = "PASS(Q1_H3_ydin)"
+        p_md += (
+            f"- {lt} ({lr['pnl_eur']:+.0f}e / {lr['pnl_pct']:+.2f}%, {lqt}/{lsl}, Data:{lr['data_density']}): "
+            f"{verdict} | SPOT4: {own_ev_str} vs {best_cs_sym}(+{best_cs_ev:.0f}e) | Kill: {lr.get('kill', '-')}\n"
+        )
+
+    # Tiivis koneluettava salkkutila Doc 3:n loppuun (~600 merkkiä) ja täysi JSON PropertiesServiceen
+    doc3_compact_state = {
+        "c_ost": round(cash_ost, 2),
+        "c_aot": round(cash_aot, 2),
+        "h_res": round(housing_res, 2),
+        "t_buy": round(tied_buys, 2),
+        "p": [
+            [
+                x["ticker"],
+                round(float(x["shares"]), 4),
+                round(float(x["avg_price"]), 2),
+                str(x.get("sleeve", "H3")),
+                round(float(x.get("lower_alert", 0.0) or 0.0), 2),
+                round(float(x.get("buy_alert", 0.0) or 0.0), 2),
+            ]
+            for x in p_state.get("positions", [])
+        ],
+        "o": [
+            [
+                str(o.get("ticker", "")),
+                str(o.get("action", "SELL")),
+                round(float(o.get("shares", 0.0)), 4),
+                round(float(o.get("limit_price", 0.0)), 2),
+                str(o.get("ccy", "USD")),
+            ]
+            for o in p_state.get("orders", [])
+        ],
+    }
+    doc3_json_str = json.dumps(doc3_compact_state, ensure_ascii=False, separators=(",", ":"))
+    full_state_json_str = json.dumps(
+        {
+            "cash_ost_eur": round(cash_ost, 2),
+            "cash_aot_eur": round(cash_aot, 2),
+            "housing_reservation_eur": round(housing_res, 2),
+            "tied_buy_orders_eur": round(tied_buys, 2),
+            "ost_cumulative_pnl_eur": round(ost_cum_pnl, 2),
+            "baseline_nov01_eur": round(base_nov01, 2),
+            "anchor_equity_eur": round(anchor_eq, 2),
+            "anchor_unit_nav_eur": round(anchor_nav, 5),
+            "anchor_total_units": round(anchor_units, 3),
+            "positions": p_state.get("positions", []),
+            "orders": p_state.get("orders", []),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    p_md += "## 6. PORTFOLIO_STATE_JSON (PILVIMUISTI)\n"
+    p_md += f"PORTFOLIO_STATE_JSON: {doc3_json_str}\n"
+    p_md += f"[EOF_3: PORTFOLIO {len(pos_records)}/{len(pos_records)} OK]\n"
+
+    # Varmista syntaksilukko Doc 3:ssa (korvaa mahdolliset raa'at <, >, $, ~ merkit)
+    p_md = p_md.replace("$", "USD ").replace("~", "noin ").replace("<=", "enintaan ").replace(">=", "vahintaan ").replace("<", "alle ").replace(">", "yli ")
+
+    summary_meta = {
+        "total_equity_eur": tot_eq_eur,
+        "ost_equity_eur": ost_eq_eur,
+        "mkt_val_eur": round(tot_mkt_eur, 2),
+        "open_pnl_eur": round(tot_open_pnl_eur, 2),
+        "cash_total_eur": cash_total,
+        "free_dry_powder_eur": free_dry_powder,
+        "unit_nav": round(unit_nav, 5),
+        "twr_pct": round(twr_pct, 2),
+        "pending_sells_net_eur": pending_sells_net_eur,
+        "alerts_list": alerts_list,
+        "sell_queue_lines": sell_queue_lines,
+        "stale_bid_lines": stale_bid_lines,
+        "pos_records": pos_records,
+        "losing_recs": losing_recs,
+        "bucket_eur": bucket_eur,
+        "horizon_eur": horizon_eur,
+        "state_json_str": full_state_json_str,
+    }
+    return p_md, summary_meta
+
+def build_ai_triple_markdown_reports(now_str, macro_info, df, macro_news, sector_news, company_news, p_state=None):
+    q_md, n_md = build_ai_dual_markdown_reports(now_str, macro_info, df, macro_news, sector_news, company_news)
+    p_md, p_meta = build_ai_portfolio_quant_report(now_str, macro_info, df, p_state)
+    return q_md, n_md, p_md, p_meta
+
+# ==========================================
 # MOOTTORI 2: IHMISEN SELKOKIELINEN NÄKYMÄ STREAMLITISSÄ (NUMEERINEN LAJITTELU)
 # ==========================================
 def build_human_display_df(sub_df):
@@ -1177,37 +1643,49 @@ def get_webhook_url():
     except Exception:
         return ""
 
-def push_to_google_drive_webhook(quant_md, news_md, webhook_url):
+def push_to_google_drive_webhook(quant_md, news_md, webhook_url, portfolio_md=None, portfolio_state_json=None):
     if not webhook_url:
         return False, "Ei Webhook-URLia asetuksissa"
     try:
         payload = {"content": quant_md, "news_content": news_md}
-        resp = requests.post(webhook_url, json=payload, timeout=12)
+        if portfolio_md:
+            payload["portfolio_content"] = portfolio_md
+        if portfolio_state_json:
+            payload["portfolio_state_json"] = portfolio_state_json
+        resp = requests.post(webhook_url, json=payload, timeout=14)
         if resp.status_code == 200 and "OK" in resp.text:
+            if portfolio_md:
+                return True, f"✅ Kaikki 3 AI-raporttia lähetetty Driveen! (Doc 1 Quant: {len(quant_md)} m | Doc 2 News: {len(news_md)} m | Doc 3 Portfolio: {len(portfolio_md)} m)"
             return True, f"✅ Molemmat AI-raportit lähetetty Driveen! (Doc 1 Quant: {len(quant_md)} merkkiä | Doc 2 News: {len(news_md)} merkkiä)"
         return False, f"Webhook vastasi koodilla {resp.status_code}: {resp.text[:100]}"
     except Exception as e:
         return False, f"Yhteysvirhe: {str(e)}"
 
 # ==========================================
-# KÄYTTÖLIITTYMÄ (UI) — IHMISEN OHJAAMO
+# KÄYTTÖLIITTYMÄ (UI) — IHMISEN OHJAAMO + MOBIILISALKKULASKURI (TRIPLE-DOC v3.7)
 # ==========================================
-st.title("📡 ST0 Market Scout v3.6 Quant — Salkun Live-Ohjaamo (Dual-Doc)")
-st.caption("Kaksijakoinen algoritminen moottori: Google Driveen lähetetään 2 merkkirajaturvallista v7.1.0-dokumenttia (Doc 1: Kvantti & EV-laskuri | Doc 2: Todennetut Uutiset).")
+st.title("📡 ST0 Market Scout v3.7 Triple-Doc Cloud Quant — Salkun Live-Ohjaamo")
+st.caption("Kolmen dokumentin pilvimoottori: Google Driveen (ja NotebookLM-linkkeihin) päivittyy yhdellä napilla Doc 1 (Kvantti & EV), Doc 2 (Uutiset) ja Doc 3 (Algoritmi E: Salkkulaskuri, Hälytykset & Horizon-Shift).")
 
-if st.button("🔄 Päivitä Live-Kurssit & Lähetä Molemmat AI-Syötteet Driveen", type="primary", use_container_width=True):
+webhook_url = get_webhook_url()
+p_state_active = load_cloud_portfolio_state(webhook_url)
+
+if st.button("🔄 Päivitä Live-Kurssit & Lähetä Kaikki 3 AI-Syötettä Driveen", type="primary", use_container_width=True):
     st.cache_data.clear()
 
 now_str, macro_info, df, macro_news, sector_news, company_news = fetch_all_market_data()
-ai_quant_md, ai_news_md = build_ai_dual_markdown_reports(now_str, macro_info, df, macro_news, sector_news, company_news)
+ai_quant_md, ai_news_md, ai_portfolio_md, p_meta = build_ai_triple_markdown_reports(
+    now_str, macro_info, df, macro_news, sector_news, company_news, p_state_active
+)
 
-webhook_url = get_webhook_url()
-ok, msg = push_to_google_drive_webhook(ai_quant_md, ai_news_md, webhook_url)
+ok, msg = push_to_google_drive_webhook(
+    ai_quant_md, ai_news_md, webhook_url, ai_portfolio_md, p_meta["state_json_str"]
+)
 
 if ok:
-    st.success(f"{msg} ({now_str}) — [EOF: {len(df)}/{len(TICKERS)} OK]. Avaa Gemini ja käytä taitoa **@st0-osakesijoittaja-apex**!")
+    st.success(f"{msg} ({now_str}) — [EOF 1-3 OK]. Avaa Gemini puhelimella ja käytä taitoa **@st0-osakesijoittaja-apex**!")
 else:
-    st.warning(f"🕒 Ladattu: {now_str} | Doc 1 Quant: {len(ai_quant_md)} merkkiä | Doc 2 News: {len(ai_news_md)} merkkiä | {msg}")
+    st.warning(f"🕒 Ladattu: {now_str} | Doc 1: {len(ai_quant_md)} m | Doc 2: {len(ai_news_md)} m | Doc 3: {len(ai_portfolio_md)} m | {msg}")
 
 # MAKROMITTARIKORTIT IHMISEN SILMÄILYYN
 vix = macro_info.get("VIX", {})
@@ -1247,6 +1725,88 @@ rate_banner_map = {
 }
 st.info(rate_banner_map.get(rate_reg, rate_banner_map["RATE_CALM"]))
 
+# SALKKULASKURIN PIKAMITTARIT & MOBIILIMUOKKAIN (ALGORITMI E PILVESSÄ)
+p1, p2, p3, p4, p5 = st.columns(5)
+p1.metric("💼 Kokonaispääoma", f"{p_meta['total_equity_eur']:,.2f} €", f"Avoin PnL {p_meta['open_pnl_eur']:+,.0f} €")
+p2.metric("📈 Unit-NAV (TWR)", f"{p_meta['unit_nav']:.4f} €", f"{p_meta['twr_pct']:+.2f} % vs ankkuri")
+p3.metric("💶 Vapaa Sijoituskassa", f"{p_meta['free_dry_powder_eur']:,.2f} €", f"Käteinen yht. {p_meta['cash_total_eur']:,.0f} €")
+p4.metric("🎯 Myyntijono Netto", f"+{p_meta['pending_sells_net_eur']:,.2f} €", f"ANT-kassa {p_meta['free_dry_powder_eur']+p_meta['pending_sells_net_eur']:,.0f} €")
+p5.metric("🔔 Aktiiviset Hälytykset", f"{len(p_meta['alerts_list'])} kpl", f"Tappiorivejä {len(p_meta['losing_recs'])} kpl")
+
+with st.expander("💼 SALKKULASKURI, HÄLYTYKSET & MOBIILIMUOKKAUS (Algoritmi E — Tallentuu Driveen Doc 3)", expanded=False):
+    ptab1, ptab2 = st.tabs(["📊 Live-Salkku, Hälytykset & Horizon-Shift", "✏️ Muokkaa Salkkua, Käteistä tai Pilkkejä Puhelimella"])
+    with ptab1:
+        if p_meta["alerts_list"]:
+            st.markdown("#### 🔔 Lauenneet ja testissä olevat kurssihälytykset")
+            for al_line in p_meta["alerts_list"]:
+                st.markdown(al_line)
+        if p_meta["sell_queue_lines"]:
+            st.markdown("#### 🎯 Myyntijonon 1-suuntaiset nettokassalaskelmat & Exit Drift")
+            for sq_line in p_meta["sell_queue_lines"]:
+                st.markdown(sq_line)
+        if p_meta["pos_records"]:
+            st.markdown("#### 📋 11 Salkkuposition Reaaliaikainen Matriisi")
+            pos_ui_df = pd.DataFrame([
+                {
+                    "Ticker": r["ticker"],
+                    "Tase:Q:H": f"{r['bs']}:{r['q_tier']}:{r['sleeve']}",
+                    "Kpl": int(r["shares"]),
+                    "Kh": round(r["avg_price"], 2),
+                    "Live": f"{r['live_price']:.2f} {r['ccy']} ({r['chg_1d']:+.2f}%)",
+                    "Arvo €": round(r["val_eur"], 0),
+                    "Paino %": round(r["weight_pct"], 2),
+                    "PnL €": round(r["pnl_eur"], 0),
+                    "PnL %": round(r["pnl_pct"], 2),
+                    "Arvostus": r["val_dna"],
+                    "Tuki (Et.)": f"{r['sup_str']} ({r['dist_sup_pct']:+.1f}%)",
+                    "Dyn Trim": r["trim_str"],
+                    "Signaali": r["signal"],
+                }
+                for r in p_meta["pos_records"]
+            ])
+            st.dataframe(pos_ui_df, use_container_width=True, hide_index=True)
+    with ptab2:
+        st.caption("Muokkaa salkun kappalemääriä, keskihintoja, käteissaldoja tai myyntipilkkejä suoraan puhelimella. Kun painat **Tallenna Pilveen**, muutokset tallentuvat Google Driveen (`Doc 3` + Apps Script -muisti).")
+        c_col1, c_col2, c_col3 = st.columns(3)
+        new_cash_ost = c_col1.number_input("OST Käteinen (EUR)", value=float(p_state_active.get("cash_ost_eur", 8797.12)), step=50.0, format="%.2f")
+        new_cash_aot = c_col2.number_input("AOT Käteinen (EUR)", value=float(p_state_active.get("cash_aot_eur", 10.00)), step=10.0, format="%.2f")
+        new_housing = c_col3.number_input("Asuntovaraus (EUR)", value=float(p_state_active.get("housing_reservation_eur", 4000.00)), step=100.0, format="%.2f")
+
+        st.markdown("**Osakepositiot (muokkaa Kpl, Kh tai Horisontti):**")
+        edited_pos_df = st.data_editor(
+            pd.DataFrame(p_state_active.get("positions", [])),
+            use_container_width=True,
+            num_rows="dynamic",
+            key="mobile_pos_editor"
+        )
+        st.markdown("**Aktiiviset Myynti-/Ostopilkit (`01`):**")
+        edited_ord_df = st.data_editor(
+            pd.DataFrame(p_state_active.get("orders", [])),
+            use_container_width=True,
+            num_rows="dynamic",
+            key="mobile_ord_editor"
+        )
+        if st.button("💾 Tallenna Salkkumuutokset & Päivitä Kaikki 3 Drive-Dokumenttia", type="primary", use_container_width=True):
+            updated_state = {
+                **p_state_active,
+                "cash_ost_eur": round(float(new_cash_ost), 2),
+                "cash_aot_eur": round(float(new_cash_aot), 2),
+                "housing_reservation_eur": round(float(new_housing), 2),
+                "positions": edited_pos_df.to_dict(orient="records"),
+                "orders": edited_ord_df.to_dict(orient="records"),
+            }
+            st.session_state["portfolio_state"] = updated_state
+            q_md2, n_md2, p_md2, p_meta2 = build_ai_triple_markdown_reports(
+                now_str, macro_info, df, macro_news, sector_news, company_news, updated_state
+            )
+            ok2, msg2 = push_to_google_drive_webhook(
+                q_md2, n_md2, webhook_url, p_md2, p_meta2["state_json_str"]
+            )
+            if ok2:
+                st.success(f"Salkkumuutokset tallennettu pilveen! {msg2}")
+            else:
+                st.warning(f"Tallennettu istuntoon ({msg2})")
+
 active_df = df[df["Signaali"] != "OK"] if not df.empty else pd.DataFrame()
 inactive_df = df[df["Signaali"] == "OK"] if not df.empty else pd.DataFrame()
 
@@ -1272,12 +1832,21 @@ if not inactive_df.empty:
         hide_index=True
     )
 
-with st.expander(f"📋 TARKISTA AI-SYÖTTEET (Doc 1 Quant: {len(ai_quant_md)} merkkiä | Doc 2 News: {len(ai_news_md)} merkkiä)", expanded=not ok):
-    t1, t2 = st.tabs(["📊 Doc 1: ST0_LIVE_MARKET_FEED (Kvantti & EV)", "📰 Doc 2: ST0_LIVE_NEWS_FEED (Uutiset)"])
+with st.expander(
+    f"📋 TARKISTA AI-SYÖTTEET (Doc 1 Quant: {len(ai_quant_md)} m | Doc 2 News: {len(ai_news_md)} m | Doc 3 Portfolio: {len(ai_portfolio_md)} m)",
+    expanded=not ok
+):
+    t1, t2, t3 = st.tabs([
+        "📊 Doc 1: ST0_LIVE_MARKET_FEED",
+        "📰 Doc 2: ST0_LIVE_NEWS_FEED",
+        "💼 Doc 3: ST0_LIVE_PORTFOLIO_QUANT (Algoritmi E)"
+    ])
     with t1:
         st.code(ai_quant_md, language="markdown")
     with t2:
         st.code(ai_news_md, language="markdown")
+    with t3:
+        st.code(ai_portfolio_md, language="markdown")
 
 st.divider()
 
